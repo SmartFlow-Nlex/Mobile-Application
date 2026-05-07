@@ -1,0 +1,8 @@
+{
+  "name": "@smartflow/shared",
+  "version": "1.0.0",
+  "description": "Shared TypeScript types for frontend and backend",
+  "main": "index.ts",
+  "private": true,
+  "types": "types/index.ts"
+}
