@@ -1,7 +1,8 @@
 import React from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { Pressable, StyleSheet, Switch, Text, View } from 'react-native';
-import { Colors } from '../constants/colors';
+import { useTheme, useThemedStyles } from '../theme';
+import type { ThemePalette } from '../theme';
 import { Typography } from '../constants/typography';
 
 export interface SettingsRowProps {
@@ -25,7 +26,9 @@ const SettingsRow: React.FC<SettingsRowProps> = ({
   onToggle,
   destructive = false,
 }) => {
-  const color = destructive ? Colors.danger : Colors.text;
+  const { colors } = useTheme();
+  const styles = useThemedStyles(makeStyles);
+  const color = destructive ? colors.danger : colors.text;
 
   return (
     <Pressable
@@ -46,11 +49,11 @@ const SettingsRow: React.FC<SettingsRowProps> = ({
           <Switch
             onValueChange={onToggle}
             value={toggleValue}
-            trackColor={{ false: Colors.border, true: '#93C5FD' }}
-            thumbColor={toggleValue ? Colors.primary : Colors.surface}
+            trackColor={{ false: colors.border, true: '#93C5FD' }}
+            thumbColor={toggleValue ? colors.primary : colors.surface}
           />
         ) : onPress ? (
-          <Ionicons name="chevron-forward" size={18} color={Colors.textTertiary} />
+          <Ionicons name="chevron-forward" size={18} color={colors.textTertiary} />
         ) : null}
       </View>
     </Pressable>
@@ -59,7 +62,8 @@ const SettingsRow: React.FC<SettingsRowProps> = ({
 
 export default SettingsRow;
 
-const styles = StyleSheet.create({
+const makeStyles = (c: ThemePalette) =>
+  StyleSheet.create({
   row: {
     minHeight: 58,
     flexDirection: 'row',
@@ -69,7 +73,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   rowPressed: {
-    backgroundColor: '#F8FAFC',
+    backgroundColor: c.pressed,
   },
   left: {
     flexDirection: 'row',
@@ -89,21 +93,21 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#EEF4FF',
+    backgroundColor: c.iconTint,
   },
   iconWrapDanger: {
-    backgroundColor: '#FEECEC',
+    backgroundColor: c.iconTintDanger,
   },
   label: {
-    color: Colors.text,
+    color: c.text,
     fontSize: Typography.fontSize.base,
     fontWeight: Typography.fontWeight.medium,
   },
   labelDanger: {
-    color: Colors.danger,
+    color: c.danger,
   },
   value: {
-    color: Colors.textSecondary,
+    color: c.textSecondary,
     fontSize: Typography.fontSize.sm,
     fontWeight: Typography.fontWeight.medium,
   },

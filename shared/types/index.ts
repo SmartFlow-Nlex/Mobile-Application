@@ -90,6 +90,9 @@ export interface SettingsState {
 
 export type TrafficStatus = 'smooth' | 'moderate' | 'heavy' | 'incident';
 
+/** Carriageway a post refers to — the two NLEX directions of travel. */
+export type TravelDirection = 'northbound' | 'southbound';
+
 export type ActiveCommunityTab = 'community' | 'incidents';
 
 export interface CommunityPost {
@@ -103,6 +106,8 @@ export interface CommunityPost {
   status: TrafficStatus;
   likes: number;
   likedByUser: boolean;
+  media?: PostMedia[];
+  direction?: TravelDirection;
 }
 
 export interface DashboardData {
@@ -153,18 +158,33 @@ export interface UpdateUserRequest {
   avatarUri?: string;
 }
 
+export type PostMediaType = 'image' | 'video';
+
+/** A photo or clip attached to a community update or incident report. */
+export interface PostMedia {
+  /** Local device URI while composing; a hosted URL once uploaded. */
+  uri: string;
+  type: PostMediaType;
+}
+
 export interface ReportIncidentPayload {
+  /** Formatted label, e.g. "Balintawak" or "Balintawak → NLEX Harbor Link". */
   location: string;
   description: string;
   status: TrafficStatus;
   reportedBy: string;
+  media?: PostMedia[];
+  direction?: TravelDirection;
 }
 
 export interface ShareUpdatePayload {
+  /** Formatted label, e.g. "Balintawak" or "Balintawak → NLEX Harbor Link". */
   location: string;
   message: string;
   status: TrafficStatus;
   postedBy: string;
+  media?: PostMedia[];
+  direction?: TravelDirection;
 }
 
 // ============================================================================

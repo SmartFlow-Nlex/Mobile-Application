@@ -1,71 +1,107 @@
-import React from 'react';
-import { Stack, useRouter } from 'expo-router';
+import React, { useEffect } from 'react';
+import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, View } from 'react-native';
-import { Colors } from './constants/colors';
-import AvatarButton from '../frontend/components/AvatarButton';
-import NotificationBell from '../frontend/components/NotificationBell';
+import {
+  DarkTheme,
+  DefaultTheme,
+  ThemeProvider as NavigationThemeProvider,
+} from '@react-navigation/native';
+import { AuthProvider, useAuth } from '../frontend/auth';
+import { ThemeProvider, useTheme } from '../frontend/theme';
 
-function HeaderAvatar(): React.ReactElement {
+const authRoutes = ['sign-in', 'sign-up'];
+
+/**
+ * Keeps the route in step with the session: signed-out users cannot stay on an
+ * app screen, and signed-in users are bounced off the auth screens. This is the
+ * guard for direct navigation; `app/index.tsx` handles the launch route.
+ */
+function useAuthRedirect(): void {
+  const { status } = useAuth();
+  const segments = useSegments();
   const router = useRouter();
 
-  return <AvatarButton initials="NT" onPress={() => router.push('/profile')} />;
+  useEffect(() => {
+    if (status === 'loading') {
+      return;
+    }
+
+    const first = segments[0];
+    // Nothing routed yet on the very first frame; index.tsx will decide.
+    if (first === undefined) {
+      return;
+    }
+
+    const onAuthScreen = authRoutes.includes(first);
+
+    if (status === 'signedOut' && !onAuthScreen) {
+      router.replace('/sign-in');
+    } else if (status === 'signedIn' && onAuthScreen) {
+      router.replace('/(tabs)/dashboard');
+    }
+  }, [status, segments, router]);
 }
 
-function HeaderNotifications(): React.ReactElement {
-  const router = useRouter();
+/**
+ * The navigator itself. Split out from `RootLayout` because it calls
+ * `useTheme()`, which only works inside the provider below it.
+ */
+function ThemedStack(): React.ReactElement {
+  const { colors, isDark } = useTheme();
+  useAuthRedirect();
 
-  return <NotificationBell hasUnread onPress={() => router.push('/notifications')} />;
-}
-
-function HeaderActions(): React.ReactElement {
-  const router = useRouter();
+  // React Navigation paints its own background behind every screen and
+  // defaults to light. Without this the dark theme flashes white on every
+  // transition, even though each screen paints itself correctly.
+  const navigationTheme = {
+    ...(isDark ? DarkTheme : DefaultTheme),
+    colors: {
+      ...(isDark ? DarkTheme : DefaultTheme).colors,
+      background: colors.background,
+      card: colors.surface,
+      text: colors.text,
+      border: colors.border,
+      primary: colors.accent,
+      notification: colors.danger,
+    },
+  };
 
   return (
-    <View style={styles.headerActions}>
-      <AvatarButton initials="NT" onPress={() => router.push('/profile')} />
-      <NotificationBell hasUnread onPress={() => router.push('/notifications')} />
-    </View>
+    <NavigationThemeProvider value={navigationTheme}>
+      {/*
+       * Every screen hides the native header and draws its own instead - see
+       * the comment in notifications.tsx for why (react-native-screens'
+       * native header portal does not reliably pass React context, which
+       * crashed a themed header button even though the provider is a real
+       * ancestor in the JS tree).
+       */}
+      <Stack
+        screenOptions={{
+          headerShown: false,
+          contentStyle: {
+            backgroundColor: colors.background,
+          },
+        }}
+      >
+        <Stack.Screen name="index" />
+        <Stack.Screen name="sign-in" />
+        <Stack.Screen name="sign-up" />
+        <Stack.Screen name="(tabs)" />
+        <Stack.Screen name="profile/index" />
+        <Stack.Screen name="notifications" />
+      </Stack>
+      {/* Light icons on the dark theme, dark icons on the light one. */}
+      <StatusBar style={isDark ? 'light' : 'dark'} backgroundColor={colors.background} />
+    </NavigationThemeProvider>
   );
 }
 
 export default function RootLayout(): React.ReactElement {
   return (
-    <>
-      <Stack
-        screenOptions={{
-          headerShown: true,
-          headerShadowVisible: false,
-          headerStyle: {
-            backgroundColor: Colors.background,
-          },
-          headerTitleStyle: {
-            color: Colors.text,
-            fontSize: 18,
-            fontWeight: '700',
-          },
-          headerLeft: () => <View />,
-          headerRight: () => <HeaderActions />,
-          contentStyle: {
-            backgroundColor: Colors.background,
-          },
-        }}
-      >
-        <Stack.Screen name="index" options={{ headerShown: false }} />
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="profile/index" options={{ title: 'Profile' }} />
-        <Stack.Screen name="notifications" options={{ title: 'Notifications' }} />
-      </Stack>
-      <StatusBar style="dark" backgroundColor={Colors.background} />
-    </>
+    <ThemeProvider>
+      <AuthProvider>
+        <ThemedStack />
+      </AuthProvider>
+    </ThemeProvider>
   );
 }
-
-const styles = StyleSheet.create({
-  headerActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    marginRight: 8,
-  },
-});

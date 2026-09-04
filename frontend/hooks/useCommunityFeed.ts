@@ -13,7 +13,7 @@ const seedPosts: CommunityPost[] = [
     id: 'community-1',
     authorName: 'Maria Santos',
     authorInitial: 'M',
-    avatarColor: '#2563EB',
+    avatarColor: '#152A48',
     location: 'Bocaue',
     timeAgo: '5m ago',
     message: 'Traffic moving smoothly now, accident cleared! 🔥',
@@ -37,7 +37,7 @@ const seedPosts: CommunityPost[] = [
     id: 'incident-1',
     authorName: 'Ana Reyes',
     authorInitial: 'A',
-    avatarColor: '#1D4ED8',
+    avatarColor: '#2F4E7E',
     location: 'San Fernando',
     timeAgo: '20m ago',
     message: 'Minor collision reported on the shoulder lane. Expect brief slowdown.',
@@ -119,13 +119,15 @@ export const useCommunityFeed = (): {
       id: `community-${Date.now()}`,
       authorName: payload.postedBy,
       authorInitial: payload.postedBy[0]?.toUpperCase() ?? 'U',
-      avatarColor: '#2563EB',
+      avatarColor: '#152A48',
       location: payload.location,
       timeAgo: 'Just now',
       message: payload.message,
       status: payload.status,
       likes: 0,
       likedByUser: false,
+      media: payload.media,
+      direction: payload.direction,
     };
 
     if (activeTab === 'community') {
@@ -146,13 +148,15 @@ export const useCommunityFeed = (): {
       id: `incident-${Date.now()}`,
       authorName: payload.reportedBy,
       authorInitial: payload.reportedBy[0]?.toUpperCase() ?? 'U',
-      avatarColor: '#1D4ED8',
+      avatarColor: '#2F4E7E',
       location: payload.location,
       timeAgo: 'Just now',
       message: payload.description,
       status: payload.status,
       likes: 0,
       likedByUser: false,
+      media: payload.media,
+      direction: payload.direction,
     };
 
     if (activeTab === 'incidents') {

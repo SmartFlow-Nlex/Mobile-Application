@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
@@ -11,8 +12,19 @@ import {
   View,
 } from 'react-native';
 import AIAssistantFAB from '../../components/community/AIAssistantFAB';
-import { Colors } from '../../constants/colors';
+import { useTheme, useThemedStyles } from '../../theme';
+import AvatarButton from '../../components/AvatarButton';
+import type { ThemePalette } from '../../theme';
 import { Typography } from '../../constants/typography';
+
+type AlertTone = 'critical' | 'warning';
+
+/** Alert tints come from the palette so they stay legible in both themes. */
+function alertTone(tone: AlertTone, c: ThemePalette): { solid: string; background: string } {
+  return tone === 'critical'
+    ? { solid: c.statusHeavySolid, background: c.statusHeavyBg }
+    : { solid: c.statusHighSolid, background: c.statusHighBg };
+}
 
 interface AlertItem {
   id: string;
@@ -21,8 +33,7 @@ interface AlertItem {
   timeAgo: string;
   priority: 'high priority' | 'medium priority';
   icon: keyof typeof Ionicons.glyphMap;
-  tint: string;
-  iconBg: string;
+  tone: AlertTone;
   unread: boolean;
 }
 
@@ -42,8 +53,7 @@ const initialAlerts: AlertItem[] = [
     timeAgo: '30m ago',
     priority: 'high priority',
     icon: 'trending-up-outline',
-    tint: '#FF2D2D',
-    iconBg: '#FFE8E8',
+    tone: 'critical',
     unread: true,
   },
   {
@@ -54,8 +64,7 @@ const initialAlerts: AlertItem[] = [
     timeAgo: '45m ago',
     priority: 'high priority',
     icon: 'warning-outline',
-    tint: '#FF3B30',
-    iconBg: '#FFE8E8',
+    tone: 'critical',
     unread: true,
   },
   {
@@ -66,16 +75,17 @@ const initialAlerts: AlertItem[] = [
     timeAgo: '1h ago',
     priority: 'medium priority',
     icon: 'construct-outline',
-    tint: '#F97316',
-    iconBg: '#FFF1E8',
+    tone: 'warning',
     unread: false,
   },
 ];
 
 export default function AlertsScreen(): React.ReactElement {
+  const { colors } = useTheme();
+  const router = useRouter();
+  const styles = useThemedStyles(makeStyles);
   const [notificationsEnabled, setNotificationsEnabled] = useState<boolean>(false);
   const [alerts, setAlerts] = useState<AlertItem[]>(initialAlerts);
-  const [isMuted, setIsMuted] = useState<boolean>(true);
 
   const unreadCount = useMemo(
     () => alerts.filter((item) => item.unread).length,
@@ -107,34 +117,18 @@ export default function AlertsScreen(): React.ReactElement {
               </View>
               <View>
                 <Text style={styles.headerTitle}>SmartFlow NLEX</Text>
-                <Text style={styles.headerSubtitle}>Predictive Traffic Intelligence</Text>
               </View>
             </View>
 
-            <Pressable style={styles.headerIconButton}>
-              <Ionicons name="notifications-outline" size={21} color={Colors.textInverse} />
-            </Pressable>
+            <AvatarButton initials="NT" onPress={() => router.push('/profile')} />
           </View>
 
           <View style={styles.body}>
-            <View style={styles.sectionHeadingRow}>
-              <View>
-                <Text style={styles.pageTitle}>Smart Alerts</Text>
-                <Text style={styles.pageSubtitle}>
-                  Proactive notifications for traffic events
-                </Text>
-              </View>
-
-              <Pressable
-                onPress={() => setIsMuted((current) => !current)}
-                style={styles.muteButton}
-              >
-                <Ionicons
-                  name={isMuted ? 'volume-mute-outline' : 'volume-high-outline'}
-                  size={20}
-                  color={Colors.textSecondary}
-                />
-              </Pressable>
+            <View style={styles.sectionHeading}>
+              <Text style={styles.pageTitle}>Smart Alerts</Text>
+              <Text style={styles.pageSubtitle}>
+                Proactive notifications for traffic events
+              </Text>
             </View>
 
             <View style={styles.settingsCard}>
@@ -150,7 +144,7 @@ export default function AlertsScreen(): React.ReactElement {
                   onValueChange={setNotificationsEnabled}
                   value={notificationsEnabled}
                   trackColor={{ false: '#CBD5E1', true: '#93C5FD' }}
-                  thumbColor={notificationsEnabled ? Colors.primary : Colors.surface}
+                  thumbColor={notificationsEnabled ? colors.primary : colors.surface}
                 />
               </View>
 
@@ -191,8 +185,17 @@ export default function AlertsScreen(): React.ReactElement {
                     pressed && styles.alertCardPressed,
                   ]}
                 >
-                  <View style={[styles.alertIconWrap, { backgroundColor: item.iconBg }]}>
-                    <Ionicons name={item.icon} size={20} color={item.tint} />
+                  <View
+                    style={[
+                      styles.alertIconWrap,
+                      { backgroundColor: alertTone(item.tone, colors).background },
+                    ]}
+                  >
+                    <Ionicons
+                      name={item.icon}
+                      size={20}
+                      color={alertTone(item.tone, colors).solid}
+                    />
                   </View>
 
                   <View style={styles.alertContent}>
@@ -203,7 +206,7 @@ export default function AlertsScreen(): React.ReactElement {
                         <Ionicons
                           name="chevron-forward"
                           size={18}
-                          color={Colors.textTertiary}
+                          color={colors.textTertiary}
                         />
                       </View>
                     </View>
@@ -212,7 +215,7 @@ export default function AlertsScreen(): React.ReactElement {
 
                     <View style={styles.alertMetaRow}>
                       <View style={styles.timeRow}>
-                        <Ionicons name="time-outline" size={13} color={Colors.textSecondary} />
+                        <Ionicons name="time-outline" size={13} color={colors.textSecondary} />
                         <Text style={styles.timeText}>{item.timeAgo}</Text>
                       </View>
 
@@ -249,20 +252,23 @@ export default function AlertsScreen(): React.ReactElement {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (c: ThemePalette) =>
+  StyleSheet.create({
   safeArea: {
+    // Brand colour so the status-bar inset runs into the header instead of
+    // leaving a white strip above it.
     flex: 1,
-    backgroundColor: Colors.surface,
+    backgroundColor: c.primary,
   },
   screen: {
     flex: 1,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: c.surfaceMuted,
   },
   content: {
     paddingBottom: 120,
   },
   headerBar: {
-    backgroundColor: Colors.primary,
+    backgroundColor: c.primary,
     paddingHorizontal: 16,
     paddingVertical: 14,
     flexDirection: 'row',
@@ -283,7 +289,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: Colors.surface,
+    backgroundColor: c.primary,
     overflow: 'hidden',
   },
   logo: {
@@ -291,15 +297,9 @@ const styles = StyleSheet.create({
     height: 22,
   },
   headerTitle: {
-    color: Colors.textInverse,
+    color: c.textInverse,
     fontSize: Typography.fontSize.lg,
     fontWeight: Typography.fontWeight.bold,
-  },
-  headerSubtitle: {
-    color: 'rgba(255,255,255,0.9)',
-    fontSize: Typography.fontSize.xs,
-    fontWeight: Typography.fontWeight.medium,
-    marginTop: 2,
   },
   headerIconButton: {
     width: 34,
@@ -313,41 +313,28 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingTop: 18,
   },
-  sectionHeadingRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    gap: 12,
+  sectionHeading: {
     marginBottom: 18,
   },
   pageTitle: {
-    color: Colors.text,
+    color: c.text,
     fontSize: 31,
     fontWeight: Typography.fontWeight.bold,
     marginBottom: 8,
   },
   pageSubtitle: {
-    color: '#58709A',
+    color: c.textSecondary,
     fontSize: Typography.fontSize.base,
     fontWeight: Typography.fontWeight.medium,
   },
-  muteButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#E9EEF6',
-    marginTop: 2,
-  },
   settingsCard: {
-    backgroundColor: Colors.surface,
+    backgroundColor: c.surface,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: '#DDE4EF',
+    borderColor: c.border,
     padding: 14,
     marginBottom: 20,
-    shadowColor: '#0F172A',
+    shadowColor: c.cardShadow,
     shadowOpacity: 0.06,
     shadowRadius: 12,
     shadowOffset: { width: 0, height: 4 },
@@ -365,7 +352,7 @@ const styles = StyleSheet.create({
     fontWeight: Typography.fontWeight.bold,
   },
   settingsStatus: {
-    color: '#58709A',
+    color: c.textSecondary,
     fontSize: Typography.fontSize.sm,
     fontWeight: Typography.fontWeight.medium,
     marginTop: 4,
@@ -385,7 +372,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#10C74C',
   },
   featureText: {
-    color: '#4B5D79',
+    color: c.textSecondary,
     fontSize: Typography.fontSize.sm,
     fontWeight: Typography.fontWeight.medium,
   },
@@ -396,7 +383,7 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   unreadTitle: {
-    color: '#1C3159',
+    color: c.text,
     fontSize: Typography.fontSize.xl,
     fontWeight: Typography.fontWeight.bold,
   },
@@ -414,12 +401,12 @@ const styles = StyleSheet.create({
   alertCard: {
     flexDirection: 'row',
     gap: 12,
-    backgroundColor: Colors.surface,
+    backgroundColor: c.surface,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: '#E7EAF0',
+    borderColor: c.border,
     padding: 14,
-    shadowColor: '#0F172A',
+    shadowColor: c.cardShadow,
     shadowOpacity: 0.04,
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 4 },
@@ -451,7 +438,7 @@ const styles = StyleSheet.create({
   },
   alertTitle: {
     flex: 1,
-    color: '#111827',
+    color: c.text,
     fontSize: Typography.fontSize.base,
     fontWeight: Typography.fontWeight.bold,
   },
@@ -464,10 +451,10 @@ const styles = StyleSheet.create({
     width: 7,
     height: 7,
     borderRadius: 3.5,
-    backgroundColor: Colors.primary,
+    backgroundColor: c.primary,
   },
   alertMessage: {
-    color: '#34435E',
+    color: c.text,
     fontSize: Typography.fontSize.base,
     lineHeight: 24,
     marginBottom: 10,
@@ -484,7 +471,7 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   timeText: {
-    color: Colors.textSecondary,
+    color: c.textSecondary,
     fontSize: Typography.fontSize.xs,
     fontWeight: Typography.fontWeight.medium,
   },
@@ -494,10 +481,10 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   priorityPillHigh: {
-    backgroundColor: '#FFE7E5',
+    backgroundColor: c.statusHeavyBg,
   },
   priorityPillMedium: {
-    backgroundColor: '#FFF2DF',
+    backgroundColor: c.statusHighBg,
   },
   priorityText: {
     fontSize: 11,

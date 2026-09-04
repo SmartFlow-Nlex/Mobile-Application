@@ -8,9 +8,12 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { ShareUpdatePayload, TrafficStatus } from '@smartflow/shared';
-import { Colors } from '../../constants/colors';
+import { PostMedia, ShareUpdatePayload, TrafficStatus } from '@smartflow/shared';
+import { useTheme, useThemedStyles } from '../../theme';
+import type { ThemePalette } from '../../theme';
 import { Typography } from '../../constants/typography';
+import MediaPicker from './MediaPicker';
+import LocationPicker, { LocationValue, emptyLocation, formatLocation } from './LocationPicker';
 
 export interface ShareUpdateModalProps {
   visible: boolean;
@@ -25,20 +28,34 @@ const ShareUpdateModal: React.FC<ShareUpdateModalProps> = ({
   onClose,
   onSubmit,
 }) => {
-  const [location, setLocation] = useState<string>('');
+  const { colors } = useTheme();
+  const styles = useThemedStyles(makeStyles);
+  const [location, setLocation] = useState<LocationValue>(emptyLocation());
   const [message, setMessage] = useState<string>('');
   const [status, setStatus] = useState<TrafficStatus>('smooth');
+  const [media, setMedia] = useState<PostMedia[]>([]);
+
+  // Location is the one required field, so the button stays inert until the
+  // exit (or the pair of exits) has actually been chosen.
+  const locationLabel = formatLocation(location);
+  const canSubmit = locationLabel !== null;
 
   const handleSubmit = (): void => {
+    if (locationLabel === null) {
+      return;
+    }
     onSubmit({
-      location,
+      location: locationLabel,
       message,
       status,
       postedBy: 'Community User',
+      media,
+      direction: location.direction,
     });
-    setLocation('');
+    setLocation(emptyLocation());
     setMessage('');
     setStatus('smooth');
+    setMedia([]);
     onClose();
   };
 
@@ -49,21 +66,14 @@ const ShareUpdateModal: React.FC<ShareUpdateModalProps> = ({
         <View style={styles.sheet}>
           <Text style={styles.title}>Share Update</Text>
           <ScrollView showsVerticalScrollIndicator={false}>
-            <Text style={styles.label}>Location</Text>
-            <TextInput
-              onChangeText={setLocation}
-              placeholder="Enter location"
-              placeholderTextColor={Colors.textTertiary}
-              style={styles.input}
-              value={location}
-            />
+            <LocationPicker onChange={setLocation} value={location} />
 
             <Text style={styles.label}>Message</Text>
             <TextInput
               multiline
               onChangeText={setMessage}
               placeholder="Share your traffic experience"
-              placeholderTextColor={Colors.textTertiary}
+              placeholderTextColor={colors.textTertiary}
               style={styles.textArea}
               textAlignVertical="top"
               value={message}
@@ -86,8 +96,16 @@ const ShareUpdateModal: React.FC<ShareUpdateModalProps> = ({
               ))}
             </View>
 
-            <Pressable onPress={handleSubmit} style={styles.submitButton}>
-              <Text style={styles.submitText}>Post Update</Text>
+            <MediaPicker accentColor={colors.accent} onChange={setMedia} value={media} />
+
+            <Pressable
+              disabled={!canSubmit}
+              onPress={handleSubmit}
+              style={[styles.submitButton, !canSubmit && styles.submitButtonDisabled]}
+            >
+              <Text style={[styles.submitText, !canSubmit && styles.submitTextDisabled]}>
+                Post Update
+              </Text>
             </Pressable>
           </ScrollView>
         </View>
@@ -98,7 +116,8 @@ const ShareUpdateModal: React.FC<ShareUpdateModalProps> = ({
 
 export default ShareUpdateModal;
 
-const styles = StyleSheet.create({
+const makeStyles = (c: ThemePalette) =>
+  StyleSheet.create({
   backdrop: {
     flex: 1,
     backgroundColor: 'rgba(15, 23, 42, 0.35)',
@@ -108,79 +127,76 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   sheet: {
-    backgroundColor: Colors.surface,
+    backgroundColor: c.surface,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     padding: 20,
     maxHeight: '82%',
   },
   title: {
-    color: Colors.text,
+    color: c.text,
     fontSize: Typography.fontSize.xl,
     fontWeight: Typography.fontWeight.bold,
     marginBottom: 18,
   },
   label: {
-    color: Colors.textSecondary,
+    color: c.textSecondary,
     fontSize: Typography.fontSize.sm,
     fontWeight: Typography.fontWeight.semibold,
     marginBottom: 8,
     marginTop: 4,
   },
-  input: {
-    height: 50,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    paddingHorizontal: 14,
-    color: Colors.text,
-    marginBottom: 12,
-  },
   textArea: {
     minHeight: 110,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: c.border,
     paddingHorizontal: 14,
     paddingVertical: 12,
-    color: Colors.text,
+    color: c.text,
     marginBottom: 12,
   },
   statusRow: {
     flexDirection: 'row',
     gap: 8,
-    marginBottom: 20,
+    marginBottom: 16,
   },
   statusChip: {
     flex: 1,
     height: 42,
     borderRadius: 10,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: c.surfaceMuted,
     alignItems: 'center',
     justifyContent: 'center',
   },
   statusChipActive: {
-    backgroundColor: Colors.communityBlue,
+    backgroundColor: c.primary,
   },
   statusChipText: {
-    color: '#6B7280',
+    color: c.textSecondary,
     fontSize: Typography.fontSize.sm,
     fontWeight: Typography.fontWeight.semibold,
     textTransform: 'capitalize',
   },
   statusChipTextActive: {
-    color: Colors.textInverse,
+    color: c.textInverse,
   },
   submitButton: {
     height: 48,
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: Colors.communityBlue,
+    backgroundColor: c.primary,
+  },
+  submitButtonDisabled: {
+    backgroundColor: c.surfaceDisabled,
   },
   submitText: {
-    color: Colors.textInverse,
+    color: c.textInverse,
     fontSize: Typography.fontSize.base,
     fontWeight: Typography.fontWeight.bold,
+  },
+  submitTextDisabled: {
+    color: c.textTertiary,
   },
 });

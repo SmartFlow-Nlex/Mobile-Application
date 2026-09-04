@@ -1,6 +1,7 @@
 import React from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
-import { Colors } from '../constants/colors';
+import { useThemedStyles } from '../theme';
+import type { ThemePalette } from '../theme';
 import { Typography } from '../constants/typography';
 
 export interface AvatarButtonProps {
@@ -10,6 +11,7 @@ export interface AvatarButtonProps {
 }
 
 const AvatarButton: React.FC<AvatarButtonProps> = ({ uri, initials, onPress }) => {
+  const styles = useThemedStyles(makeStyles);
   return (
     <Pressable
       accessibilityRole="button"
@@ -30,7 +32,8 @@ const AvatarButton: React.FC<AvatarButtonProps> = ({ uri, initials, onPress }) =
 
 export default AvatarButton;
 
-const styles = StyleSheet.create({
+const makeStyles = (c: ThemePalette) =>
+  StyleSheet.create({
   button: {
     width: 36,
     height: 36,
@@ -46,12 +49,15 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: Colors.primary,
+    // The ring needs its own radius: a square border inside the circular,
+    // clipped parent renders as two side arcs instead of a ring.
+    borderRadius: 18,
+    backgroundColor: c.primaryDark,
     borderWidth: 2,
-    borderColor: Colors.surface,
+    borderColor: c.surface,
   },
   initials: {
-    color: Colors.textInverse,
+    color: c.textInverse,
     fontSize: Typography.fontSize.sm,
     fontWeight: Typography.fontWeight.bold,
   },

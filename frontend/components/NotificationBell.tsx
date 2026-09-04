@@ -1,7 +1,8 @@
 import React from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Colors } from '../constants/colors';
+import { useTheme, useThemedStyles } from '../theme';
+import type { ThemePalette } from '../theme';
 
 export interface NotificationBellProps {
   hasUnread: boolean;
@@ -9,6 +10,8 @@ export interface NotificationBellProps {
 }
 
 const NotificationBell: React.FC<NotificationBellProps> = ({ hasUnread, onPress }) => {
+  const { colors } = useTheme();
+  const styles = useThemedStyles(makeStyles);
   return (
     <Pressable
       accessibilityRole="button"
@@ -16,7 +19,7 @@ const NotificationBell: React.FC<NotificationBellProps> = ({ hasUnread, onPress 
       onPress={onPress}
       style={styles.button}
     >
-      <Ionicons name="notifications-outline" size={21} color={Colors.text} />
+      <Ionicons name="notifications-outline" size={21} color={colors.text} />
       {hasUnread ? <View style={styles.badge} /> : null}
     </Pressable>
   );
@@ -24,16 +27,17 @@ const NotificationBell: React.FC<NotificationBellProps> = ({ hasUnread, onPress 
 
 export default NotificationBell;
 
-const styles = StyleSheet.create({
+const makeStyles = (c: ThemePalette) =>
+  StyleSheet.create({
   button: {
     width: 38,
     height: 38,
     borderRadius: 19,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: Colors.surface,
+    backgroundColor: c.surface,
     marginRight: 8,
-    shadowColor: '#0F172A',
+    shadowColor: c.cardShadow,
     shadowOpacity: 0.08,
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 4 },
@@ -46,8 +50,8 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: Colors.danger,
+    backgroundColor: c.danger,
     borderWidth: 1,
-    borderColor: Colors.surface,
+    borderColor: c.surface,
   },
 });

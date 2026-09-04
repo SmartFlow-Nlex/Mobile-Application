@@ -190,7 +190,7 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     backgroundColor: Colors.primary,
     marginBottom: 22,
-    shadowColor: '#1D4ED8',
+    shadowColor: Colors.primaryShadow,
     shadowOpacity: 0.24,
     shadowRadius: 18,
     shadowOffset: { width: 0, height: 10 },

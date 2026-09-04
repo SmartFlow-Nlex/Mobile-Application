@@ -1,5 +1,4 @@
 import React, { useMemo, useState } from 'react';
-import * as SecureStore from 'expo-secure-store';
 import * as Linking from 'expo-linking';
 import { Stack, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -16,14 +15,37 @@ import { SettingsState, UserProfile } from '../../shared/types/index';
 import EditProfileModal from '../../frontend/components/EditProfileModal';
 import SectionHeader from '../../frontend/components/SectionHeader';
 import SettingsRow from '../../frontend/components/SettingsRow';
-import { Colors } from '../constants/colors';
+import ThemeModePicker, { themeModeLabel } from '../../frontend/components/ThemeModePicker';
+import { useTheme, useThemedStyles } from '../../frontend/theme';
+import type { ThemePalette } from '../../frontend/theme';
 import { Typography } from '../constants/typography';
-import { authTokenKey, useUserProfile } from '../../frontend/hooks/useUserProfile';
+import { useUserProfile } from '../../frontend/hooks/useUserProfile';
+import { useAuth } from '../../frontend/auth';
 
 export default function ProfileScreen(): React.ReactElement {
+  const { colors, mode: themeMode } = useTheme();
+  const styles = useThemedStyles(makeStyles);
   const router = useRouter();
-  const { user, isLoading, error, patchUser } = useUserProfile();
+  const { session, signOut } = useAuth();
+
+  // The profile endpoint has no notion of the signed-in account yet, so the
+  // session is what the screen falls back to instead of a stock placeholder.
+  const sessionUser = useMemo<UserProfile | undefined>(
+    () =>
+      session === null
+        ? undefined
+        : {
+            id: 'local-account',
+            displayName: session.fullName,
+            username: session.email.split('@')[0] ?? 'nlextraveler',
+            email: session.email,
+          },
+    [session],
+  );
+
+  const { user, isLoading, error, patchUser } = useUserProfile(sessionUser);
   const [isEditModalVisible, setIsEditModalVisible] = useState<boolean>(false);
+  const [isThemePickerVisible, setIsThemePickerVisible] = useState<boolean>(false);
   const [settings, setSettings] = useState<SettingsState>({
     notificationsEnabled: true,
     darkModeEnabled: false,
@@ -57,8 +79,8 @@ export default function ProfileScreen(): React.ReactElement {
         text: 'Log Out',
         style: 'destructive',
         onPress: async () => {
-          await SecureStore.deleteItemAsync(authTokenKey);
-          router.replace('/');
+          await signOut();
+          router.replace('/sign-in');
         },
       },
     ]);
@@ -71,7 +93,7 @@ export default function ProfileScreen(): React.ReactElement {
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.topBar}>
           <Pressable onPress={() => router.back()} style={styles.backButton}>
-            <Ionicons name="arrow-back" size={20} color={Colors.text} />
+            <Ionicons name="arrow-back" size={20} color={colors.text} />
           </Pressable>
         </View>
 
@@ -114,6 +136,13 @@ export default function ProfileScreen(): React.ReactElement {
           />
           <View style={styles.divider} />
           <SettingsRow
+            icon="moon-outline"
+            label="Dark Mode"
+            value={themeModeLabel[themeMode]}
+            onPress={() => setIsThemePickerVisible(true)}
+          />
+          <View style={styles.divider} />
+          <SettingsRow
             icon="shield-checkmark-outline"
             label="Privacy Policy"
             onPress={() => void handleOpenLink('https://example.com/privacy')}
@@ -142,7 +171,7 @@ export default function ProfileScreen(): React.ReactElement {
         </View>
 
         <Pressable onPress={handleLogout} style={styles.logoutButton}>
-          <Ionicons name="log-out-outline" size={18} color={Colors.danger} />
+          <Ionicons name="log-out-outline" size={18} color={colors.danger} />
           <Text style={styles.logoutText}>Log Out</Text>
         </Pressable>
       </ScrollView>
@@ -153,14 +182,20 @@ export default function ProfileScreen(): React.ReactElement {
         user={user}
         visible={isEditModalVisible}
       />
+
+      <ThemeModePicker
+        visible={isThemePickerVisible}
+        onClose={() => setIsThemePickerVisible(false)}
+      />
     </View>
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (c: ThemePalette) =>
+  StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: Colors.background,
+    backgroundColor: c.background,
   },
   content: {
     paddingHorizontal: 16,
@@ -176,18 +211,18 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: Colors.surface,
+    backgroundColor: c.surface,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: c.border,
   },
   userCard: {
     flexDirection: 'row',
     alignItems: 'center',
     padding: 18,
     borderRadius: 24,
-    backgroundColor: Colors.primary,
+    backgroundColor: c.primary,
     marginBottom: 22,
-    shadowColor: '#1D4ED8',
+    shadowColor: c.primaryShadow,
     shadowOpacity: 0.24,
     shadowRadius: 18,
     shadowOffset: { width: 0, height: 10 },
@@ -211,7 +246,7 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.2)',
   },
   avatarInitials: {
-    color: Colors.textInverse,
+    color: c.textInverse,
     fontSize: Typography.fontSize.xl,
     fontWeight: Typography.fontWeight.bold,
   },
@@ -220,7 +255,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   userName: {
-    color: Colors.textInverse,
+    color: c.textInverse,
     fontSize: Typography.fontSize.xl,
     fontWeight: Typography.fontWeight.bold,
     marginBottom: 4,
@@ -237,13 +272,13 @@ const styles = StyleSheet.create({
     marginTop: 6,
   },
   sectionCard: {
-    backgroundColor: Colors.surface,
+    backgroundColor: c.surface,
     borderRadius: 22,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: c.border,
     overflow: 'hidden',
     marginBottom: 22,
-    shadowColor: '#0F172A',
+    shadowColor: c.cardShadow,
     shadowOpacity: 0.05,
     shadowRadius: 16,
     shadowOffset: { width: 0, height: 8 },
@@ -251,7 +286,7 @@ const styles = StyleSheet.create({
   },
   divider: {
     height: 1,
-    backgroundColor: '#EEF2F7',
+    backgroundColor: c.hairline,
     marginLeft: 62,
   },
   logoutButton: {
@@ -263,7 +298,7 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
   },
   logoutText: {
-    color: Colors.danger,
+    color: c.danger,
     fontSize: Typography.fontSize.base,
     fontWeight: Typography.fontWeight.semibold,
   },

@@ -2,7 +2,8 @@ import React from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { ActiveCommunityTab } from '@smartflow/shared';
-import { Colors } from '../../constants/colors';
+import { useTheme, useThemedStyles } from '../../theme';
+import type { ThemePalette } from '../../theme';
 import { Typography } from '../../constants/typography';
 
 export interface FilterTabsProps {
@@ -11,6 +12,8 @@ export interface FilterTabsProps {
 }
 
 const FilterTabs: React.FC<FilterTabsProps> = ({ activeTab, onTabChange }) => {
+  const { colors } = useTheme();
+  const styles = useThemedStyles(makeStyles);
   return (
     <View style={styles.container}>
       <Pressable
@@ -20,7 +23,7 @@ const FilterTabs: React.FC<FilterTabsProps> = ({ activeTab, onTabChange }) => {
         <Ionicons
           name="people-outline"
           size={16}
-          color={activeTab === 'community' ? Colors.communityBlue : '#6B7280'}
+          color={activeTab === 'community' ? colors.accent : colors.textSecondary}
         />
         <Text style={[styles.tabLabel, activeTab === 'community' && styles.tabLabelActive]}>
           Community Updates
@@ -34,7 +37,7 @@ const FilterTabs: React.FC<FilterTabsProps> = ({ activeTab, onTabChange }) => {
         <Ionicons
           name="warning-outline"
           size={16}
-          color={activeTab === 'incidents' ? Colors.communityBlue : '#6B7280'}
+          color={activeTab === 'incidents' ? colors.accent : colors.textSecondary}
         />
         <Text style={[styles.tabLabel, activeTab === 'incidents' && styles.tabLabelActive]}>
           Recent Incidents
@@ -46,10 +49,11 @@ const FilterTabs: React.FC<FilterTabsProps> = ({ activeTab, onTabChange }) => {
 
 export default FilterTabs;
 
-const styles = StyleSheet.create({
+const makeStyles = (c: ThemePalette) =>
+  StyleSheet.create({
   container: {
     flexDirection: 'row',
-    backgroundColor: '#F3F4F6',
+    backgroundColor: c.surfaceMuted,
     borderRadius: 14,
     padding: 4,
     marginBottom: 18,
@@ -66,20 +70,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   tabActive: {
-    backgroundColor: Colors.surface,
-    shadowColor: '#0F172A',
+    backgroundColor: c.surface,
+    shadowColor: c.cardShadow,
     shadowOpacity: 0.08,
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 2 },
     elevation: 2,
   },
   tabLabel: {
-    color: '#6B7280',
+    color: c.textSecondary,
     fontSize: Typography.fontSize.sm,
     fontWeight: Typography.fontWeight.medium,
   },
   tabLabelActive: {
-    color: Colors.communityBlue,
+    color: c.accent,
     fontWeight: Typography.fontWeight.bold,
   },
 });

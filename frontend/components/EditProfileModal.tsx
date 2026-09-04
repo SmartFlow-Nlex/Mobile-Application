@@ -12,7 +12,8 @@ import {
   View,
 } from 'react-native';
 import { UserProfile } from '@smartflow/shared';
-import { Colors } from '../constants/colors';
+import { useTheme, useThemedStyles } from '../theme';
+import type { ThemePalette } from '../theme';
 import { Typography } from '../constants/typography';
 
 export interface EditProfileModalProps {
@@ -28,6 +29,8 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
   onClose,
   onSave,
 }) => {
+  const { colors } = useTheme();
+  const styles = useThemedStyles(makeStyles);
   const [draft, setDraft] = useState<UserProfile>(user);
 
   useEffect(() => {
@@ -71,7 +74,7 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
           <View style={styles.header}>
             <Text style={styles.title}>Edit Profile</Text>
             <Pressable onPress={onClose} style={styles.closeButton}>
-              <Ionicons name="close" size={20} color={Colors.text} />
+              <Ionicons name="close" size={20} color={colors.text} />
             </Pressable>
           </View>
 
@@ -92,35 +95,38 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
               <TextInput
                 onChangeText={(displayName) => setDraft((current) => ({ ...current, displayName }))}
                 placeholder="Enter full name"
-                placeholderTextColor={Colors.textTertiary}
+                placeholderTextColor={colors.textTertiary}
                 style={styles.input}
                 value={draft.displayName}
               />
             </View>
 
+            {/*
+              Username and email are fixed at sign-up: they identify the
+              account, so they are shown for reference rather than edited here.
+              Only the profile name and photo are the user's to change.
+            */}
             <View style={styles.fieldGroup}>
               <Text style={styles.label}>Username</Text>
-              <TextInput
-                autoCapitalize="none"
-                onChangeText={(username) => setDraft((current) => ({ ...current, username }))}
-                placeholder="Enter username"
-                placeholderTextColor={Colors.textTertiary}
-                style={styles.input}
-                value={draft.username}
-              />
+              <View style={styles.readOnlyField}>
+                <Text numberOfLines={1} style={styles.readOnlyValue}>
+                  {draft.username}
+                </Text>
+                <Ionicons name="lock-closed" size={15} color={colors.textTertiary} />
+              </View>
             </View>
 
             <View style={styles.fieldGroup}>
               <Text style={styles.label}>Email</Text>
-              <TextInput
-                autoCapitalize="none"
-                keyboardType="email-address"
-                onChangeText={(email) => setDraft((current) => ({ ...current, email }))}
-                placeholder="Enter email"
-                placeholderTextColor={Colors.textTertiary}
-                style={styles.input}
-                value={draft.email}
-              />
+              <View style={styles.readOnlyField}>
+                <Text numberOfLines={1} style={styles.readOnlyValue}>
+                  {draft.email}
+                </Text>
+                <Ionicons name="lock-closed" size={15} color={colors.textTertiary} />
+              </View>
+              <Text style={styles.readOnlyHint}>
+                Your username and email come from the account you signed in with.
+              </Text>
             </View>
 
             <Pressable
@@ -138,7 +144,8 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
 
 export default EditProfileModal;
 
-const styles = StyleSheet.create({
+const makeStyles = (c: ThemePalette) =>
+  StyleSheet.create({
   backdrop: {
     flex: 1,
     justifyContent: 'flex-end',
@@ -148,7 +155,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   sheet: {
-    backgroundColor: Colors.surface,
+    backgroundColor: c.surface,
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
     paddingHorizontal: 20,
@@ -160,7 +167,7 @@ const styles = StyleSheet.create({
     width: 48,
     height: 5,
     borderRadius: 999,
-    backgroundColor: Colors.border,
+    backgroundColor: c.border,
     alignSelf: 'center',
     marginBottom: 14,
   },
@@ -171,7 +178,7 @@ const styles = StyleSheet.create({
     marginBottom: 18,
   },
   title: {
-    color: Colors.text,
+    color: c.text,
     fontSize: Typography.fontSize.xl,
     fontWeight: Typography.fontWeight.bold,
   },
@@ -179,7 +186,7 @@ const styles = StyleSheet.create({
     width: 34,
     height: 34,
     borderRadius: 17,
-    backgroundColor: '#F8FAFC',
+    backgroundColor: c.pressed,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -199,16 +206,16 @@ const styles = StyleSheet.create({
     borderRadius: 44,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: Colors.primary,
+    backgroundColor: c.primary,
     marginBottom: 12,
   },
   avatarInitials: {
-    color: Colors.textInverse,
+    color: c.textInverse,
     fontSize: Typography.fontSize['2xl'],
     fontWeight: Typography.fontWeight.bold,
   },
   changePhotoText: {
-    color: Colors.primary,
+    color: c.accent,
     fontSize: Typography.fontSize.sm,
     fontWeight: Typography.fontWeight.semibold,
   },
@@ -216,7 +223,7 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   label: {
-    color: Colors.textSecondary,
+    color: c.textSecondary,
     fontSize: Typography.fontSize.sm,
     fontWeight: Typography.fontWeight.semibold,
     marginBottom: 8,
@@ -225,12 +232,36 @@ const styles = StyleSheet.create({
     height: 52,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: Colors.border,
-    backgroundColor: '#FBFCFE',
+    borderColor: c.border,
+    backgroundColor: c.field,
     paddingHorizontal: 14,
-    color: Colors.text,
+    color: c.text,
     fontSize: Typography.fontSize.base,
     fontWeight: Typography.fontWeight.medium,
+  },
+  readOnlyField: {
+    minHeight: 52,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: c.hairline,
+    backgroundColor: c.surfaceDisabled,
+    paddingHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  readOnlyValue: {
+    color: c.textSecondary,
+    fontSize: Typography.fontSize.base,
+    fontWeight: Typography.fontWeight.medium,
+    flexShrink: 1,
+  },
+  readOnlyHint: {
+    color: c.textTertiary,
+    fontSize: Typography.fontSize.xs,
+    fontWeight: Typography.fontWeight.normal,
+    marginTop: 8,
   },
   saveButton: {
     marginTop: 10,
@@ -238,13 +269,13 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: Colors.primary,
+    backgroundColor: c.primary,
   },
   saveButtonPressed: {
     opacity: 0.9,
   },
   saveButtonText: {
-    color: Colors.textInverse,
+    color: c.textInverse,
     fontSize: Typography.fontSize.base,
     fontWeight: Typography.fontWeight.bold,
   },

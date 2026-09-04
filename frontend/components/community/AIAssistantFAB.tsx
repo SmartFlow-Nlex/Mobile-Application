@@ -1,16 +1,19 @@
 import React from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { Colors } from '../../constants/colors';
+import { useTheme, useThemedStyles } from '../../theme';
+import type { ThemePalette } from '../../theme';
 
 export interface AIAssistantFABProps {
   onPress: () => void;
 }
 
 const AIAssistantFAB: React.FC<AIAssistantFABProps> = ({ onPress }) => {
+  const { colors } = useTheme();
+  const styles = useThemedStyles(makeStyles);
   return (
     <Pressable onPress={onPress} style={styles.fab}>
-      <Ionicons name="hardware-chip-outline" size={24} color={Colors.textInverse} />
+      <Ionicons name="chatbubble-ellipses" size={22} color={colors.textInverse} />
       <View style={styles.badge}>
         <Text style={styles.badgeText}>AI</Text>
       </View>
@@ -20,7 +23,8 @@ const AIAssistantFAB: React.FC<AIAssistantFABProps> = ({ onPress }) => {
 
 export default AIAssistantFAB;
 
-const styles = StyleSheet.create({
+const makeStyles = (c: ThemePalette) =>
+  StyleSheet.create({
   fab: {
     position: 'absolute',
     right: 16,
@@ -28,10 +32,10 @@ const styles = StyleSheet.create({
     width: 58,
     height: 58,
     borderRadius: 29,
-    backgroundColor: Colors.communityBlue,
+    backgroundColor: c.primary,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#0F172A',
+    shadowColor: c.cardShadow,
     shadowOpacity: 0.18,
     shadowRadius: 12,
     shadowOffset: { width: 0, height: 6 },
@@ -44,15 +48,15 @@ const styles = StyleSheet.create({
     minWidth: 22,
     height: 22,
     borderRadius: 11,
-    backgroundColor: Colors.dangerRed,
+    backgroundColor: c.dangerRed,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 4,
     borderWidth: 2,
-    borderColor: Colors.surface,
+    borderColor: c.surface,
   },
   badgeText: {
-    color: Colors.textInverse,
+    color: c.textInverse,
     fontSize: 10,
     fontWeight: '800',
   },

@@ -1,45 +1,58 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { TrafficStatus } from '@smartflow/shared';
-import { Colors } from '../../constants/colors';
+import { useTheme, useThemedStyles } from '../../theme';
+import type { ThemePalette } from '../../theme';
 import { Typography } from '../../constants/typography';
 
 export interface StatusBadgeProps {
   status: TrafficStatus;
 }
 
-const statusConfig: Record<
-  TrafficStatus,
-  { backgroundColor: string; color: string; icon: string; label: string }
-> = {
-  smooth: {
-    backgroundColor: Colors.statusSmoothBg,
-    color: Colors.statusSmoothText,
-    icon: '✓',
-    label: 'smooth',
-  },
-  moderate: {
-    backgroundColor: Colors.statusModerateBg,
-    color: Colors.statusModerateText,
-    icon: '⚠️',
-    label: 'moderate',
-  },
-  heavy: {
-    backgroundColor: Colors.statusHeavyBg,
-    color: Colors.statusHeavyText,
-    icon: '🚛',
-    label: 'heavy',
-  },
-  incident: {
-    backgroundColor: Colors.statusHeavyBg,
-    color: Colors.statusHeavyText,
-    icon: '🚨',
-    label: 'incident',
-  },
-};
+interface StatusConfig {
+  backgroundColor: string;
+  color: string;
+  icon: string;
+  label: string;
+}
+
+/**
+ * Built from the active palette rather than declared at module scope, so the
+ * badge tints follow the theme instead of freezing to the light values.
+ */
+function statusConfigFor(c: ThemePalette): Record<TrafficStatus, StatusConfig> {
+  return {
+    smooth: {
+      backgroundColor: c.statusSmoothBg,
+      color: c.statusSmoothText,
+      icon: '✓',
+      label: 'smooth',
+    },
+    moderate: {
+      backgroundColor: c.statusModerateBg,
+      color: c.statusModerateText,
+      icon: '⚠️',
+      label: 'moderate',
+    },
+    heavy: {
+      backgroundColor: c.statusHeavyBg,
+      color: c.statusHeavyText,
+      icon: '🚛',
+      label: 'heavy',
+    },
+    incident: {
+      backgroundColor: c.statusHeavyBg,
+      color: c.statusHeavyText,
+      icon: '🚨',
+      label: 'incident',
+    },
+  };
+}
 
 const StatusBadge: React.FC<StatusBadgeProps> = ({ status }) => {
-  const config = statusConfig[status];
+  const { colors } = useTheme();
+  const styles = useThemedStyles(makeStyles);
+  const config = statusConfigFor(colors)[status];
 
   return (
     <View style={[styles.badge, { backgroundColor: config.backgroundColor }]}>
@@ -52,7 +65,8 @@ const StatusBadge: React.FC<StatusBadgeProps> = ({ status }) => {
 
 export default StatusBadge;
 
-const styles = StyleSheet.create({
+const makeStyles = (_c: ThemePalette) =>
+  StyleSheet.create({
   badge: {
     borderRadius: 999,
     paddingHorizontal: 10,

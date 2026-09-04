@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
@@ -16,11 +17,16 @@ import CommunityPostCard from '../../../components/community/CommunityPostCard';
 import FilterTabs from '../../../components/community/FilterTabs';
 import ReportIncidentModal from '../../../components/community/ReportIncidentModal';
 import ShareUpdateModal from '../../../components/community/ShareUpdateModal';
-import { Colors } from '../../../constants/colors';
+import { useTheme, useThemedStyles } from '../../../theme';
+import AvatarButton from '../../../components/AvatarButton';
+import type { ThemePalette } from '../../../theme';
 import { Typography } from '../../../constants/typography';
 import { useCommunityFeed } from '../../../hooks/useCommunityFeed';
 
 export default function CommunityScreen(): React.ReactElement {
+  const { colors } = useTheme();
+  const router = useRouter();
+  const styles = useThemedStyles(makeStyles);
   const {
     posts,
     isLoading,
@@ -53,18 +59,15 @@ export default function CommunityScreen(): React.ReactElement {
               </View>
               <View>
                 <Text style={styles.headerTitle}>SmartFlow NLEX</Text>
-                <Text style={styles.headerSubtitle}>Predictive Traffic Intelligence</Text>
               </View>
             </View>
 
-            <Pressable style={styles.headerIconButton}>
-              <Ionicons name="notifications-outline" size={21} color={Colors.textInverse} />
-            </Pressable>
+            <AvatarButton initials="NT" onPress={() => router.push('/profile')} />
           </View>
 
           <View style={styles.pageHeader}>
             <View style={styles.pageHeaderIcon}>
-              <Ionicons name="people-outline" size={18} color={Colors.textInverse} />
+              <Ionicons name="people-outline" size={18} color={colors.textInverse} />
             </View>
             <View>
               <Text style={styles.pageTitle}>Community</Text>
@@ -77,12 +80,12 @@ export default function CommunityScreen(): React.ReactElement {
           <View style={styles.body}>
             <View style={styles.actionsRow}>
             <Pressable onPress={() => setShowShareModal(true)} style={styles.shareButton}>
-              <Ionicons name="paper-plane-outline" size={16} color={Colors.textInverse} />
+              <Ionicons name="paper-plane-outline" size={16} color={colors.textInverse} />
               <Text style={styles.actionButtonText}>Share Update</Text>
             </Pressable>
 
             <Pressable onPress={() => setShowReportModal(true)} style={styles.reportButton}>
-              <Ionicons name="warning-outline" size={16} color={Colors.textInverse} />
+              <Ionicons name="warning-outline" size={16} color={colors.textInverse} />
               <Text style={styles.actionButtonText}>Report Incident</Text>
             </Pressable>
             </View>
@@ -90,7 +93,7 @@ export default function CommunityScreen(): React.ReactElement {
             <FilterTabs activeTab={activeTab} onTabChange={setActiveTab} />
 
             <View style={styles.sectionHeader}>
-              <Ionicons name={sectionIcon} size={18} color={Colors.communityBlue} />
+              <Ionicons name={sectionIcon} size={18} color={colors.accent} />
               <Text style={styles.sectionHeaderText}>{sectionTitle}</Text>
             </View>
 
@@ -146,20 +149,23 @@ export default function CommunityScreen(): React.ReactElement {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (c: ThemePalette) =>
+  StyleSheet.create({
   safeArea: {
+    // Brand colour so the status-bar inset runs into the header instead of
+    // leaving a white strip above it.
     flex: 1,
-    backgroundColor: Colors.surface,
+    backgroundColor: c.primary,
   },
   screen: {
     flex: 1,
-    backgroundColor: Colors.surface,
+    backgroundColor: c.surface,
   },
   content: {
     paddingBottom: 120,
   },
   headerBar: {
-    backgroundColor: Colors.communityBlue,
+    backgroundColor: c.primary,
     paddingHorizontal: 16,
     paddingVertical: 14,
     flexDirection: 'row',
@@ -178,7 +184,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: Colors.surface,
+    backgroundColor: c.primary,
     overflow: 'hidden',
   },
   logo: {
@@ -186,15 +192,9 @@ const styles = StyleSheet.create({
     height: 22,
   },
   headerTitle: {
-    color: Colors.textInverse,
+    color: c.textInverse,
     fontSize: Typography.fontSize.lg,
     fontWeight: Typography.fontWeight.bold,
-  },
-  headerSubtitle: {
-    color: 'rgba(255,255,255,0.92)',
-    fontSize: Typography.fontSize.xs,
-    fontWeight: Typography.fontWeight.medium,
-    marginTop: 2,
   },
   headerIconButton: {
     width: 34,
@@ -210,9 +210,9 @@ const styles = StyleSheet.create({
     gap: 12,
     paddingHorizontal: 16,
     paddingVertical: 18,
-    backgroundColor: Colors.surface,
+    backgroundColor: c.surface,
     borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
+    borderBottomColor: c.border,
   },
   pageHeaderIcon: {
     width: 34,
@@ -220,15 +220,15 @@ const styles = StyleSheet.create({
     borderRadius: 17,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: Colors.communityBlue,
+    backgroundColor: c.primary,
   },
   pageTitle: {
-    color: Colors.text,
+    color: c.text,
     fontSize: Typography.fontSize.lg,
     fontWeight: Typography.fontWeight.bold,
   },
   pageSubtitle: {
-    color: '#6B7280',
+    color: c.textSecondary,
     fontSize: Typography.fontSize.xs,
     fontWeight: Typography.fontWeight.medium,
     lineHeight: 18,
@@ -247,7 +247,7 @@ const styles = StyleSheet.create({
     flex: 1,
     height: 48,
     borderRadius: 10,
-    backgroundColor: Colors.communityBlue,
+    backgroundColor: c.primary,
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
@@ -257,14 +257,14 @@ const styles = StyleSheet.create({
     flex: 1,
     height: 48,
     borderRadius: 10,
-    backgroundColor: Colors.dangerRed,
+    backgroundColor: c.dangerRed,
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
     gap: 8,
   },
   actionButtonText: {
-    color: Colors.textInverse,
+    color: c.textInverse,
     fontSize: Typography.fontSize.sm,
     fontWeight: Typography.fontWeight.bold,
   },
@@ -275,12 +275,12 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   sectionHeaderText: {
-    color: Colors.text,
+    color: c.text,
     fontSize: Typography.fontSize.base,
     fontWeight: Typography.fontWeight.bold,
   },
   loadingText: {
-    color: '#6B7280',
+    color: c.textSecondary,
     fontSize: Typography.fontSize.sm,
     marginBottom: 12,
   },
@@ -297,17 +297,17 @@ const styles = StyleSheet.create({
   aiCard: {
     width: '100%',
     borderRadius: 18,
-    backgroundColor: Colors.surface,
+    backgroundColor: c.surface,
     padding: 20,
   },
   aiTitle: {
-    color: Colors.text,
+    color: c.text,
     fontSize: Typography.fontSize.lg,
     fontWeight: Typography.fontWeight.bold,
     marginBottom: 8,
   },
   aiMessage: {
-    color: '#374151',
+    color: c.text,
     fontSize: Typography.fontSize.sm,
     lineHeight: 20,
     marginBottom: 18,
@@ -317,10 +317,10 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: Colors.communityBlue,
+    backgroundColor: c.primary,
   },
   aiButtonText: {
-    color: Colors.textInverse,
+    color: c.textInverse,
     fontSize: Typography.fontSize.base,
     fontWeight: Typography.fontWeight.bold,
   },

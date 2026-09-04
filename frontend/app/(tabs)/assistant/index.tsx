@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
@@ -10,7 +11,9 @@ import {
   View,
   Image,
 } from 'react-native';
-import { Colors } from '../../../constants/colors';
+import { useTheme, useThemedStyles } from '../../../theme';
+import AvatarButton from '../../../components/AvatarButton';
+import type { ThemePalette } from '../../../theme';
 import { Typography } from '../../../constants/typography';
 
 const quickQuestions = [
@@ -20,6 +23,9 @@ const quickQuestions = [
 ] as const;
 
 export default function AssistantScreen(): React.ReactElement {
+  const { colors } = useTheme();
+  const router = useRouter();
+  const styles = useThemedStyles(makeStyles);
   const [message, setMessage] = useState<string>('');
 
   return (
@@ -37,23 +43,20 @@ export default function AssistantScreen(): React.ReactElement {
               </View>
               <View>
                 <Text style={styles.headerTitle}>SmartFlow NLEX</Text>
-                <Text style={styles.headerSubtitle}>Predictive Traffic Intelligence</Text>
               </View>
             </View>
 
-            <Pressable style={styles.headerIconButton}>
-              <Ionicons name="notifications-outline" size={21} color={Colors.textInverse} />
-            </Pressable>
+            <AvatarButton initials="NT" onPress={() => router.push('/profile')} />
           </View>
 
           <View style={styles.pageHeader}>
             <View style={styles.pageHeaderIcon}>
-              <Ionicons name="hardware-chip-outline" size={18} color={Colors.textInverse} />
+              <Ionicons name="hardware-chip-outline" size={18} color={colors.textInverse} />
             </View>
             <View>
               <Text style={styles.pageTitle}>Traffic Assistant</Text>
               <View style={styles.pageSubtitleRow}>
-                <Ionicons name="sparkles-outline" size={12} color={Colors.textSecondary} />
+                <Ionicons name="sparkles-outline" size={12} color={colors.textSecondary} />
                 <Text style={styles.pageSubtitle}>ML-Powered Predictions</Text>
               </View>
             </View>
@@ -61,7 +64,7 @@ export default function AssistantScreen(): React.ReactElement {
 
           <View style={styles.chatRow}>
             <View style={styles.assistantBadge}>
-              <Ionicons name="hardware-chip-outline" size={16} color={Colors.textInverse} />
+              <Ionicons name="hardware-chip-outline" size={16} color={colors.textInverse} />
             </View>
 
             <View style={styles.chatColumn}>
@@ -79,7 +82,7 @@ export default function AssistantScreen(): React.ReactElement {
         <View style={styles.composerShell}>
           <Text style={styles.quickLabel}>Quick questions:</Text>
           <View style={styles.quickRow}>
-            <Ionicons name="caret-back" size={14} color={Colors.textSecondary} />
+            <Ionicons name="caret-back" size={14} color={colors.textSecondary} />
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
@@ -93,19 +96,19 @@ export default function AssistantScreen(): React.ReactElement {
                 </Pressable>
               ))}
             </ScrollView>
-            <Ionicons name="caret-forward" size={14} color={Colors.textSecondary} />
+            <Ionicons name="caret-forward" size={14} color={colors.textSecondary} />
           </View>
 
           <View style={styles.inputRow}>
             <TextInput
               onChangeText={setMessage}
               placeholder="Ask about traffic, routes, or departure"
-              placeholderTextColor={Colors.textSecondary}
+              placeholderTextColor={colors.textSecondary}
               style={styles.input}
               value={message}
             />
             <Pressable style={styles.sendButton}>
-              <Ionicons name="paper-plane-outline" size={20} color={Colors.textInverse} />
+              <Ionicons name="paper-plane-outline" size={20} color={colors.textInverse} />
             </Pressable>
           </View>
         </View>
@@ -114,20 +117,23 @@ export default function AssistantScreen(): React.ReactElement {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (c: ThemePalette) =>
+  StyleSheet.create({
   safeArea: {
+    // Brand colour so the status-bar inset runs into the header instead of
+    // leaving a white strip above it.
     flex: 1,
-    backgroundColor: Colors.surface,
+    backgroundColor: c.primary,
   },
   screen: {
     flex: 1,
-    backgroundColor: Colors.surface,
+    backgroundColor: c.surface,
   },
   content: {
     paddingBottom: 24,
   },
   headerBar: {
-    backgroundColor: '#2563EB',
+    backgroundColor: c.primary,
     paddingHorizontal: 16,
     paddingVertical: 14,
     flexDirection: 'row',
@@ -146,7 +152,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: Colors.surface,
+    backgroundColor: c.primary,
     overflow: 'hidden',
   },
   logo: {
@@ -154,15 +160,9 @@ const styles = StyleSheet.create({
     height: 22,
   },
   headerTitle: {
-    color: Colors.textInverse,
+    color: c.textInverse,
     fontSize: Typography.fontSize.lg,
     fontWeight: Typography.fontWeight.bold,
-  },
-  headerSubtitle: {
-    color: 'rgba(255,255,255,0.9)',
-    fontSize: Typography.fontSize.xs,
-    fontWeight: Typography.fontWeight.medium,
-    marginTop: 2,
   },
   headerIconButton: {
     width: 34,
@@ -179,7 +179,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 18,
     borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
+    borderBottomColor: c.border,
   },
   pageHeaderIcon: {
     width: 34,
@@ -190,7 +190,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#7C5CFA',
   },
   pageTitle: {
-    color: '#111827',
+    color: c.text,
     fontSize: 18,
     fontWeight: Typography.fontWeight.bold,
   },
@@ -201,7 +201,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   pageSubtitle: {
-    color: Colors.textSecondary,
+    color: c.textSecondary,
     fontSize: Typography.fontSize.xs,
     fontWeight: Typography.fontWeight.medium,
   },
@@ -225,39 +225,39 @@ const styles = StyleSheet.create({
   },
   chatBubble: {
     maxWidth: '84%',
-    backgroundColor: Colors.surface,
+    backgroundColor: c.surface,
     borderRadius: 14,
     paddingHorizontal: 14,
     paddingVertical: 12,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
-    shadowColor: '#0F172A',
+    borderColor: c.border,
+    shadowColor: c.cardShadow,
     shadowOpacity: 0.08,
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 3 },
     elevation: 3,
   },
   chatText: {
-    color: '#111827',
+    color: c.text,
     fontSize: Typography.fontSize.base,
     lineHeight: 24,
   },
   timeText: {
-    color: '#94A3B8',
+    color: c.textTertiary,
     fontSize: Typography.fontSize.xs,
     marginTop: 8,
     marginLeft: 8,
   },
   composerShell: {
     borderTopWidth: 1,
-    borderTopColor: '#E5E7EB',
+    borderTopColor: c.border,
     paddingTop: 14,
     paddingHorizontal: 14,
     paddingBottom: 16,
-    backgroundColor: Colors.surface,
+    backgroundColor: c.surface,
   },
   quickLabel: {
-    color: Colors.textSecondary,
+    color: c.textSecondary,
     fontSize: Typography.fontSize.sm,
     marginBottom: 10,
   },
@@ -273,12 +273,12 @@ const styles = StyleSheet.create({
   quickChip: {
     height: 30,
     borderRadius: 12,
-    backgroundColor: '#F1F5F9',
+    backgroundColor: c.surfaceMuted,
     justifyContent: 'center',
     paddingHorizontal: 10,
   },
   quickChipText: {
-    color: '#111827',
+    color: c.text,
     fontSize: Typography.fontSize.xs,
     fontWeight: Typography.fontWeight.medium,
   },
@@ -292,9 +292,9 @@ const styles = StyleSheet.create({
     height: 48,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#CBD5E1',
+    borderColor: c.border,
     paddingHorizontal: 14,
-    color: '#111827',
+    color: c.text,
     fontSize: Typography.fontSize.base,
   },
   sendButton: {
@@ -303,6 +303,6 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#B9C7DB',
+    backgroundColor: c.borderLight,
   },
 });

@@ -1,4 +1,4 @@
-import { Dispatch, SetStateAction, useEffect, useState } from 'react';
+import { Dispatch, SetStateAction, useEffect, useRef, useState } from 'react';
 import * as SecureStore from 'expo-secure-store';
 import { UserProfile } from '@smartflow/shared';
 
@@ -27,7 +27,14 @@ const getAuthHeaders = async (): Promise<Record<string, string>> => {
   };
 };
 
-export const useUserProfile = (): {
+/**
+ * @param fallback Profile to show when the API is unreachable. Pass the signed-in
+ *   account so the user sees their own name rather than a placeholder — the
+ *   profile endpoint is not wired to the auth session yet. Memoise it.
+ */
+export const useUserProfile = (
+  fallback?: UserProfile,
+): {
   user: UserProfile;
   isLoading: boolean;
   error: string | null;
@@ -35,9 +42,14 @@ export const useUserProfile = (): {
   refreshUser: () => Promise<void>;
   patchUser: (updated: UserProfile) => Promise<UserProfile>;
 } => {
-  const [user, setUser] = useState<UserProfile>(defaultUser);
+  const initialUser = fallback ?? defaultUser;
+  const [user, setUser] = useState<UserProfile>(initialUser);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Read inside async callbacks without making them re-fire on every render.
+  const fallbackRef = useRef<UserProfile>(initialUser);
+  fallbackRef.current = initialUser;
 
   const refreshUser = async (): Promise<void> => {
     setIsLoading(true);
@@ -59,7 +71,7 @@ export const useUserProfile = (): {
       }
     } catch (caughtError) {
       setError(caughtError instanceof Error ? caughtError.message : 'Unable to load profile');
-      setUser(defaultUser);
+      setUser(fallbackRef.current);
     } finally {
       setIsLoading(false);
     }
