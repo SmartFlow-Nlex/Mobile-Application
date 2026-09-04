@@ -1,20 +1,6 @@
-import { Platform } from 'react-native';
+import { API_TIMEOUT_MS, CORRIDOR_API_BASE_URL } from '../config/api';
 
-/**
- * Live corridor data comes from the Waze-ingest backend, not this app. Expo
- * Go on a real phone - how this project is actually tested throughout this
- * codebase - needs the LAN address; an Android *emulator* instead resolves
- * the dev machine through the special 10.0.2.2 alias. There is no reliable
- * way to detect "running inside an emulator" from JS alone without adding a
- * native module (expo-device is not installed here), so this is a single
- * flag to flip by hand if you switch to emulator-based testing.
- */
-const USE_ANDROID_EMULATOR_HOST = false;
-
-export const CORRIDOR_API_BASE_URL =
-  Platform.OS === 'android' && USE_ANDROID_EMULATOR_HOST
-    ? 'http://10.0.2.2:4000'
-    : 'http://192.168.2.196:4000';
+export { CORRIDOR_API_BASE_URL };
 
 const CORRIDOR_STATUS_PATH = '/api/dashboard/corridor-status/full';
 
@@ -73,17 +59,71 @@ interface CorridorStatusApiResponse {
   data: CorridorStatusData;
 }
 
-export async function fetchCorridorStatus(signal?: AbortSignal): Promise<CorridorStatusData> {
-  const response = await fetch(`${CORRIDOR_API_BASE_URL}${CORRIDOR_STATUS_PATH}`, { signal });
+/** Why a corridor request failed, so the UI can say something useful. */
+export type CorridorErrorKind =
+  /** Nothing answered at the address - backend down, wrong IP, or firewalled. */
+  | 'unreachable'
+  /** The server answered, but not with what we expected. */
+  | 'badResponse';
 
-  if (!response.ok) {
-    throw new Error(`Corridor status request failed (HTTP ${response.status})`);
+export class CorridorApiError extends Error {
+  readonly kind: CorridorErrorKind;
+  /** The address that was tried, so the message can name it. */
+  readonly url: string;
+
+  constructor(kind: CorridorErrorKind, message: string, url: string) {
+    super(message);
+    this.name = 'CorridorApiError';
+    this.kind = kind;
+    this.url = url;
+  }
+}
+
+export async function fetchCorridorStatus(signal?: AbortSignal): Promise<CorridorStatusData> {
+  const url = `${CORRIDOR_API_BASE_URL}${CORRIDOR_STATUS_PATH}`;
+
+  // A dead host does not refuse the connection, it simply never answers - without
+  // our own deadline the request sits there for the platform default (a minute or
+  // more on iOS) and the card looks like it is hanging.
+  const timeoutController = new AbortController();
+  const timeoutId = setTimeout(() => timeoutController.abort(), API_TIMEOUT_MS);
+
+  // Honour the caller's signal (screen unmount, refresh) as well as our timeout.
+  const onCallerAbort = (): void => timeoutController.abort();
+  signal?.addEventListener('abort', onCallerAbort);
+
+  let response: Response;
+  try {
+    response = await fetch(url, { signal: timeoutController.signal });
+  } catch (caught) {
+    // The caller cancelled deliberately: let the hook drop it, do not surface
+    // an error the user would see for a screen they already left.
+    if (signal?.aborted === true) {
+      throw caught;
+    }
+    throw new CorridorApiError('unreachable', 'Could not reach the backend', url);
+  } finally {
+    clearTimeout(timeoutId);
+    signal?.removeEventListener('abort', onCallerAbort);
   }
 
-  const payload = (await response.json()) as CorridorStatusApiResponse;
+  if (!response.ok) {
+    throw new CorridorApiError(
+      'badResponse',
+      `The backend answered with HTTP ${response.status}`,
+      url,
+    );
+  }
 
-  if (!payload.success) {
-    throw new Error('Corridor status request did not succeed');
+  let payload: CorridorStatusApiResponse;
+  try {
+    payload = (await response.json()) as CorridorStatusApiResponse;
+  } catch {
+    throw new CorridorApiError('badResponse', 'The backend sent a response we could not read', url);
+  }
+
+  if (!payload.success || payload.data === undefined) {
+    throw new CorridorApiError('badResponse', 'The backend reported the request did not succeed', url);
   }
 
   return payload.data;

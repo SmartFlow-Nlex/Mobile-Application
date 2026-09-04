@@ -149,6 +149,9 @@ const LiveCorridorStatus: React.FC = () => {
     }
   };
 
+  // Nothing to show and not still trying: the feed is genuinely unavailable.
+  const isOffline = data === null && !isLoading;
+
   const headerBlock = (
     <View style={styles.header}>
       <View style={styles.headerIcon}>
@@ -164,10 +167,33 @@ const LiveCorridorStatus: React.FC = () => {
             : `Both directions - ${formatFeedAge(data.feed.ageMinutes)}`}
         </Text>
       </View>
-      <View style={[styles.liveBadge, data?.feed.stale === true && styles.liveBadgeStale]}>
-        <View style={[styles.liveDot, data?.feed.stale === true && styles.liveDotStale]} />
-        <Text style={[styles.liveText, data?.feed.stale === true && styles.liveTextStale]}>
-          {data?.feed.stale === true ? 'STALE' : 'LIVE'}
+      {/*
+        Three honest states. Claiming LIVE while the body says the feed is
+        unreachable is worse than saying nothing, so a failed fetch reads
+        OFFLINE rather than staying green.
+      */}
+      <View
+        style={[
+          styles.liveBadge,
+          data?.feed.stale === true && styles.liveBadgeStale,
+          isOffline && styles.liveBadgeOffline,
+        ]}
+      >
+        <View
+          style={[
+            styles.liveDot,
+            data?.feed.stale === true && styles.liveDotStale,
+            isOffline && styles.liveDotOffline,
+          ]}
+        />
+        <Text
+          style={[
+            styles.liveText,
+            data?.feed.stale === true && styles.liveTextStale,
+            isOffline && styles.liveTextOffline,
+          ]}
+        >
+          {isOffline ? 'OFFLINE' : data?.feed.stale === true ? 'STALE' : 'LIVE'}
         </Text>
       </View>
     </View>
@@ -187,14 +213,29 @@ const LiveCorridorStatus: React.FC = () => {
     );
   }
 
-  // The request failed and we have never had data to fall back on.
+  // The request failed and we have never had data to fall back on. Say what is
+  // wrong and what to do about it - the raw fetch exception means nothing to
+  // whoever is holding the phone.
   if (data === null) {
+    const unreachable = error === null || error.kind === 'unreachable';
     return (
       <View>
         {headerBlock}
         <View style={styles.statusBox}>
           <Ionicons name="cloud-offline-outline" size={22} color={colors.textTertiary} />
-          <Text style={styles.statusBoxText}>{error ?? 'Could not load the live feed.'}</Text>
+          <Text style={styles.statusBoxTitle}>
+            {unreachable ? "Can't reach the backend" : 'The backend returned an error'}
+          </Text>
+          <Text style={styles.statusBoxText}>
+            {unreachable
+              ? 'Nothing answered at this address. Check that the SmartFlow dashboard server is running and that your phone is on the same Wi-Fi.'
+              : error.message}
+          </Text>
+          {error?.url !== null && error?.url !== undefined ? (
+            <Text style={styles.statusBoxUrl} numberOfLines={2}>
+              {error.url}
+            </Text>
+          ) : null}
           <Pressable
             accessibilityRole="button"
             onPress={refresh}
@@ -417,11 +458,26 @@ const makeStyles = (c: ThemePalette) =>
     liveTextStale: {
       color: c.statusModerateText,
     },
+    liveBadgeOffline: {
+      backgroundColor: c.surfaceMuted,
+    },
+    liveDotOffline: {
+      backgroundColor: c.textTertiary,
+    },
+    liveTextOffline: {
+      color: c.textTertiary,
+    },
     statusBox: {
       alignItems: 'center',
       justifyContent: 'center',
       gap: 10,
       paddingVertical: 36,
+    },
+    statusBoxTitle: {
+      color: c.text,
+      fontSize: Typography.fontSize.base,
+      fontWeight: Typography.fontWeight.bold,
+      textAlign: 'center',
     },
     statusBoxText: {
       color: c.textSecondary,
@@ -429,6 +485,13 @@ const makeStyles = (c: ThemePalette) =>
       fontWeight: Typography.fontWeight.medium,
       textAlign: 'center',
       paddingHorizontal: 24,
+    },
+    statusBoxUrl: {
+      color: c.textTertiary,
+      fontSize: Typography.fontSize.xs,
+      fontWeight: Typography.fontWeight.normal,
+      textAlign: 'center',
+      paddingHorizontal: 16,
     },
     retryButton: {
       marginTop: 4,

@@ -1,15 +1,27 @@
 import { useCallback, useEffect, useState } from 'react';
 import { AppState, AppStateStatus } from 'react-native';
-import { CorridorStatusData, fetchCorridorStatus } from '../lib/corridorApi';
+import {
+  CorridorApiError,
+  CorridorErrorKind,
+  CorridorStatusData,
+  fetchCorridorStatus,
+} from '../lib/corridorApi';
 
 /** "Poll every 60s — the Waze ingester writes every few minutes." */
 const POLL_INTERVAL_MS = 60000;
+
+export interface CorridorStatusError {
+  kind: CorridorErrorKind | 'unknown';
+  message: string;
+  /** Address that was tried, so the UI can show teammates where to look. */
+  url: string | null;
+}
 
 export interface CorridorStatusState {
   data: CorridorStatusData | null;
   /** True only until the very first request settles - polling refreshes are silent. */
   isLoading: boolean;
-  error: string | null;
+  error: CorridorStatusError | null;
   refresh: () => void;
 }
 
@@ -22,7 +34,7 @@ export interface CorridorStatusState {
 export function useCorridorStatus(): CorridorStatusState {
   const [data, setData] = useState<CorridorStatusData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<CorridorStatusError | null>(null);
   const [refreshToken, setRefreshToken] = useState(0);
 
   const refresh = useCallback((): void => {
@@ -43,7 +55,16 @@ export function useCorridorStatus(): CorridorStatusState {
       } catch (caughtError) {
         if (!cancelled && !controller.signal.aborted) {
           setError(
-            caughtError instanceof Error ? caughtError.message : 'Failed to load corridor status',
+            caughtError instanceof CorridorApiError
+              ? { kind: caughtError.kind, message: caughtError.message, url: caughtError.url }
+              : {
+                  kind: 'unknown',
+                  message:
+                    caughtError instanceof Error
+                      ? caughtError.message
+                      : 'Failed to load corridor status',
+                  url: null,
+                },
           );
         }
       } finally {

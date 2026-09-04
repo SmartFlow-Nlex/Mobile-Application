@@ -1,8 +1,8 @@
 import { Dispatch, SetStateAction, useEffect, useRef, useState } from 'react';
 import * as SecureStore from 'expo-secure-store';
 import { UserProfile } from '@smartflow/shared';
+import { COMMUNITY_API_BASE_URL as API_BASE_URL } from '../config/api';
 
-const API_BASE_URL = 'http://localhost:3000';
 const AUTH_TOKEN_KEY = 'authToken';
 
 const defaultUser: UserProfile = {

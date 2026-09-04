@@ -5,8 +5,7 @@ import {
   ReportIncidentPayload,
   ShareUpdatePayload,
 } from '@smartflow/shared';
-
-const API_BASE_URL = 'http://localhost:3000';
+import { COMMUNITY_API_BASE_URL as API_BASE_URL } from '../config/api';
 
 const seedPosts: CommunityPost[] = [
   {
