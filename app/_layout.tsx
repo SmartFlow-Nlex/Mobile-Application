@@ -1,11 +1,13 @@
 import React, { useEffect } from 'react';
-import { Stack, useRouter, useSegments } from 'expo-router';
-import { StatusBar } from 'expo-status-bar';
 import {
   DarkTheme,
   DefaultTheme,
+  Stack,
   ThemeProvider as NavigationThemeProvider,
-} from '@react-navigation/native';
+  useRouter,
+  useSegments,
+} from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
 import { AuthProvider, useAuth } from '../frontend/auth';
 import { ThemeProvider, useTheme } from '../frontend/theme';
 
@@ -90,8 +92,12 @@ function ThemedStack(): React.ReactElement {
         <Stack.Screen name="profile/index" />
         <Stack.Screen name="notifications" />
       </Stack>
-      {/* Light icons on the dark theme, dark icons on the light one. */}
-      <StatusBar style={isDark ? 'light' : 'dark'} backgroundColor={colors.background} />
+      {/*
+        Light icons on the dark theme, dark icons on the light one. SDK 57
+        dropped StatusBar's `backgroundColor` - Android is edge-to-edge now, so
+        the bar is transparent and the screen behind it paints that area.
+      */}
+      <StatusBar style={isDark ? 'light' : 'dark'} />
     </NavigationThemeProvider>
   );
 }

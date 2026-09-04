@@ -292,7 +292,9 @@ const makeStyles = (c: ThemePalette) =>
     paddingHorizontal: 24,
   },
   aiScrim: {
-    ...StyleSheet.absoluteFillObject,
+    // RN 0.86 removed StyleSheet.absoluteFillObject; absoluteFill is the
+    // registered-style equivalent and spreads the same way.
+    ...StyleSheet.absoluteFill,
   },
   aiCard: {
     width: '100%',

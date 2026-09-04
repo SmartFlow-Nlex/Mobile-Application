@@ -49,7 +49,7 @@ export default function RootLayout(): React.ReactElement {
         <Stack.Screen name="profile/index" options={{ title: 'Profile' }} />
         <Stack.Screen name="notifications" options={{ title: 'Notifications' }} />
       </Stack>
-      <StatusBar style="dark" backgroundColor={Colors.background} />
+      <StatusBar style="dark" />
     </>
   );
 }
