@@ -6,6 +6,7 @@ import React, {
   useMemo,
   useState,
 } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import { Session } from '@supabase/supabase-js';
 import { AuthResult, authenticate, nameForUser, register, signOutRemote } from './authApi';
@@ -39,19 +40,44 @@ const REMEMBER_ME_KEY = 'authRememberMe';
  */
 const memoryStore = new Map<string, string>();
 
-async function readItem(key: string): Promise<string | null> {
-  try {
-    return await SecureStore.getItemAsync(key);
-  } catch {
-    return memoryStore.get(key) ?? null;
-  }
-}
-
 async function writeItem(key: string, value: string): Promise<void> {
   try {
     await SecureStore.setItemAsync(key, value);
   } catch {
     memoryStore.set(key, value);
+  }
+}
+
+/**
+ * The "remember me" flag lives in AsyncStorage, deliberately alongside the
+ * Supabase session rather than in SecureStore.
+ *
+ * It is not a secret, and keeping the two in the same store means they cannot
+ * disagree. When it lived in SecureStore the flag was lost on every web reload
+ * (SecureStore is unsupported there and falls back to memory), so a remembered
+ * user was silently signed out on refresh while their session was still valid.
+ */
+async function readRemembered(): Promise<boolean> {
+  try {
+    return (await AsyncStorage.getItem(REMEMBER_ME_KEY)) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+async function writeRemembered(remember: boolean): Promise<void> {
+  try {
+    await AsyncStorage.setItem(REMEMBER_ME_KEY, remember ? 'true' : 'false');
+  } catch {
+    // Worst case the next cold start treats the session as not remembered.
+  }
+}
+
+async function clearRemembered(): Promise<void> {
+  try {
+    await AsyncStorage.removeItem(REMEMBER_ME_KEY);
+  } catch {
+    // Nothing to clear.
   }
 }
 
@@ -103,7 +129,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       // Supabase always persists. "Remember me" is honoured here instead: an
       // unremembered session is ended the next time the app cold-starts.
-      if (data.session !== null && (await readItem(REMEMBER_ME_KEY)) !== 'true') {
+      if (data.session !== null && !(await readRemembered())) {
         await signOutRemote();
         apply(null);
         return;
@@ -144,7 +170,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // The session itself is Supabase's to store. We keep the flag that
       // decides whether it survives a restart, plus a copy of the access token
       // for the API helpers that build Authorization headers.
-      await writeItem(REMEMBER_ME_KEY, remember ? 'true' : 'false');
+      await writeRemembered(remember);
       await writeItem(AUTH_TOKEN_KEY, next.token);
     },
     [],
@@ -188,7 +214,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setSession(null);
     setStatus('signedOut');
     await signOutRemote();
-    await removeItem(REMEMBER_ME_KEY);
+    await clearRemembered();
     await removeItem(AUTH_SESSION_KEY);
     await removeItem(AUTH_TOKEN_KEY);
   }, []);
