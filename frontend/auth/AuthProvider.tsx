@@ -7,7 +7,9 @@ import React, {
   useState,
 } from 'react';
 import * as SecureStore from 'expo-secure-store';
-import { AuthResult, authenticate, register } from './authApi';
+import { Session } from '@supabase/supabase-js';
+import { AuthResult, authenticate, nameForUser, register, signOutRemote } from './authApi';
+import { getSupabase, isSupabaseConfigured } from './supabaseClient';
 
 export type AuthStatus = 'loading' | 'signedIn' | 'signedOut';
 
@@ -28,6 +30,7 @@ export interface AuthContextValue {
 
 const AUTH_TOKEN_KEY = 'authToken';
 const AUTH_SESSION_KEY = 'authSession';
+const REMEMBER_ME_KEY = 'authRememberMe';
 
 /**
  * expo-secure-store is unsupported on web and throws there, so every call is
@@ -61,25 +64,6 @@ async function removeItem(key: string): Promise<void> {
   memoryStore.delete(key);
 }
 
-function parseSession(raw: string | null): AuthSession | null {
-  if (raw === null) {
-    return null;
-  }
-  try {
-    const parsed = JSON.parse(raw) as Partial<AuthSession>;
-    if (
-      typeof parsed.token === 'string' &&
-      typeof parsed.fullName === 'string' &&
-      typeof parsed.email === 'string'
-    ) {
-      return { token: parsed.token, fullName: parsed.fullName, email: parsed.email };
-    }
-  } catch {
-    // A corrupt entry is treated as no session rather than crashing the launch.
-  }
-  return null;
-}
-
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -89,19 +73,61 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     let cancelled = false;
 
-    const restore = async (): Promise<void> => {
-      const stored = parseSession(await readItem(AUTH_SESSION_KEY));
+    /** Supabase's session is the source of truth; ours just mirrors it. */
+    const toAuthSession = (session: Session): AuthSession => ({
+      token: session.access_token,
+      fullName: nameForUser(session.user),
+      email: session.user.email ?? '',
+    });
+
+    const apply = (session: Session | null): void => {
       if (cancelled) {
         return;
       }
-      setSession(stored);
-      setStatus(stored === null ? 'signedOut' : 'signedIn');
+      setSession(session === null ? null : toAuthSession(session));
+      setStatus(session === null ? 'signedOut' : 'signedIn');
+    };
+
+    const restore = async (): Promise<void> => {
+      if (!isSupabaseConfigured) {
+        // Nothing to restore from, and every call would throw anyway. Land on
+        // the sign-in screen so the error is shown where it can be read.
+        if (!cancelled) {
+          setSession(null);
+          setStatus('signedOut');
+        }
+        return;
+      }
+
+      const { data } = await getSupabase().auth.getSession();
+
+      // Supabase always persists. "Remember me" is honoured here instead: an
+      // unremembered session is ended the next time the app cold-starts.
+      if (data.session !== null && (await readItem(REMEMBER_ME_KEY)) !== 'true') {
+        await signOutRemote();
+        apply(null);
+        return;
+      }
+
+      apply(data.session);
     };
 
     void restore();
 
+    // Keeps state correct when the token refreshes, or the session is ended
+    // from somewhere other than the Log Out button.
+    const { data: subscription } = isSupabaseConfigured
+      ? getSupabase().auth.onAuthStateChange((_event, nextSession) => {
+          if (nextSession !== null) {
+            void writeItem(AUTH_TOKEN_KEY, nextSession.access_token);
+          }
+          apply(nextSession);
+        })
+      : { data: null };
+
     return () => {
       cancelled = true;
+      subscription?.subscription.unsubscribe();
     };
   }, []);
 
@@ -115,15 +141,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setSession(next);
       setStatus('signedIn');
 
-      if (remember) {
-        // "Remember me" is the whole difference between a session that survives
-        // a restart and one that lives only in memory for this launch.
-        await writeItem(AUTH_SESSION_KEY, JSON.stringify(next));
-        await writeItem(AUTH_TOKEN_KEY, next.token);
-      } else {
-        await removeItem(AUTH_SESSION_KEY);
-        await removeItem(AUTH_TOKEN_KEY);
-      }
+      // The session itself is Supabase's to store. We keep the flag that
+      // decides whether it survives a restart, plus a copy of the access token
+      // for the API helpers that build Authorization headers.
+      await writeItem(REMEMBER_ME_KEY, remember ? 'true' : 'false');
+      await writeItem(AUTH_TOKEN_KEY, next.token);
     },
     [],
   );
@@ -165,6 +187,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const signOut = useCallback(async (): Promise<void> => {
     setSession(null);
     setStatus('signedOut');
+    await signOutRemote();
+    await removeItem(REMEMBER_ME_KEY);
     await removeItem(AUTH_SESSION_KEY);
     await removeItem(AUTH_TOKEN_KEY);
   }, []);

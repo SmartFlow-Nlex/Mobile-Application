@@ -1,13 +1,15 @@
+import { AuthError, User } from '@supabase/supabase-js';
+import { getSupabase, isSupabaseConfigured } from './supabaseClient';
+
 /**
- * Auth transport seam.
+ * Auth transport.
  *
- * SmartFlow has no auth endpoint yet, so `authenticate` and `register` resolve
- * locally and the session lives only on this device. That means credentials are
- * NOT checked against anything — any well-formed email and password will sign
- * in. This is the sign-in *flow*, not security.
+ * Backed by Supabase Auth (email + password). Validation runs locally first so
+ * the user gets an instant, specific message for an obviously bad input instead
+ * of a round trip; everything past that is Supabase's answer.
  *
- * When the backend lands, replace the two function bodies with fetch calls and
- * return the token it issues; nothing above this file needs to change.
+ * The account's display name lives in the auth user's `user_metadata` under
+ * `full_name` - there is no profiles table.
  */
 
 export interface Credentials {
@@ -74,11 +76,49 @@ export function displayNameFromEmail(email: string): string {
   return words.length > 0 ? words.join(' ') : 'NLEX Traveler';
 }
 
-function issueLocalToken(): string {
-  return `local-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+/** Supabase's own wording is aimed at developers; these are aimed at commuters. */
+function friendlyAuthMessage(error: AuthError): string {
+  const raw = error.message.toLowerCase();
+  if (raw.includes('invalid login credentials')) {
+    return 'That email and password do not match an account.';
+  }
+  if (raw.includes('email not confirmed')) {
+    return 'Confirm your email address first, then sign in.';
+  }
+  if (raw.includes('already registered') || raw.includes('already been registered')) {
+    return 'An account with that email already exists. Sign in instead.';
+  }
+  if (raw.includes('rate limit') || raw.includes('too many')) {
+    return 'Too many attempts. Wait a moment and try again.';
+  }
+  if (raw.includes('network') || raw.includes('fetch')) {
+    return 'Could not reach the server. Check your connection and try again.';
+  }
+  return error.message;
+}
+
+function assertConfigured(): void {
+  if (!isSupabaseConfigured) {
+    throw new Error(
+      'Supabase is not configured. Set EXPO_PUBLIC_SUPABASE_URL and ' +
+        'EXPO_PUBLIC_SUPABASE_ANON_KEY, then restart the dev server.',
+    );
+  }
+}
+
+/** Best display name available: what they signed up with, else from the email. */
+export function nameForUser(user: User): string {
+  const metadata = user.user_metadata as { full_name?: unknown } | null;
+  const stored = typeof metadata?.full_name === 'string' ? metadata.full_name.trim() : '';
+  if (stored.length > 0) {
+    return stored;
+  }
+  return displayNameFromEmail(user.email ?? '');
 }
 
 export async function authenticate({ email, password }: Credentials): Promise<AuthResult> {
+  assertConfigured();
+
   const emailError = validateEmail(email);
   if (emailError !== null) {
     throw new Error(emailError);
@@ -88,10 +128,22 @@ export async function authenticate({ email, password }: Credentials): Promise<Au
     throw new Error(passwordError);
   }
 
-  return {
-    token: issueLocalToken(),
-    fullName: displayNameFromEmail(email),
+  const { data, error } = await getSupabase().auth.signInWithPassword({
     email: email.trim(),
+    password,
+  });
+
+  if (error !== null) {
+    throw new Error(friendlyAuthMessage(error));
+  }
+  if (data.session === null || data.user === null) {
+    throw new Error('Signed in, but no session came back. Try again.');
+  }
+
+  return {
+    token: data.session.access_token,
+    fullName: nameForUser(data.user),
+    email: data.user.email ?? email.trim(),
   };
 }
 
@@ -100,6 +152,8 @@ export async function register({
   email,
   password,
 }: Registration): Promise<AuthResult> {
+  assertConfigured();
+
   const nameError = validateFullName(fullName);
   if (nameError !== null) {
     throw new Error(nameError);
@@ -113,9 +167,36 @@ export async function register({
     throw new Error(passwordError);
   }
 
-  return {
-    token: issueLocalToken(),
-    fullName: fullName.trim(),
+  const trimmedName = fullName.trim();
+  const { data, error } = await getSupabase().auth.signUp({
     email: email.trim(),
+    password,
+    options: { data: { full_name: trimmedName } },
+  });
+
+  if (error !== null) {
+    throw new Error(friendlyAuthMessage(error));
+  }
+
+  // With "Confirm email" enabled Supabase returns a user but no session, so the
+  // account cannot be used yet. Say so rather than pretending they are in.
+  if (data.session === null) {
+    throw new Error(
+      'Account created. Check your email for a confirmation link, then sign in.',
+    );
+  }
+
+  return {
+    token: data.session.access_token,
+    fullName: trimmedName,
+    email: data.user?.email ?? email.trim(),
   };
+}
+
+/** Ends the Supabase session. Safe to call when already signed out. */
+export async function signOutRemote(): Promise<void> {
+  if (!isSupabaseConfigured) {
+    return;
+  }
+  await getSupabase().auth.signOut();
 }
