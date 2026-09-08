@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { CommunityPost } from '@smartflow/shared';
@@ -6,6 +6,7 @@ import { useTheme, useThemedStyles } from '../../theme';
 import type { ThemePalette } from '../../theme';
 import { Typography } from '../../constants/typography';
 import StatusBadge from './StatusBadge';
+import MediaViewer from './MediaViewer';
 
 export interface CommunityPostCardProps {
   post: CommunityPost;
@@ -15,6 +16,9 @@ export interface CommunityPostCardProps {
 const CommunityPostCard: React.FC<CommunityPostCardProps> = ({ post, onLike }) => {
   const { colors } = useTheme();
   const styles = useThemedStyles(makeStyles);
+  const media = post.media ?? [];
+  const [viewerIndex, setViewerIndex] = useState<number | null>(null);
+
   return (
     <View style={styles.card}>
       <View style={styles.topRow}>
@@ -47,23 +51,38 @@ const CommunityPostCard: React.FC<CommunityPostCardProps> = ({ post, onLike }) =
 
       <Text style={styles.message}>{post.message}</Text>
 
-      {post.media && post.media.length > 0 ? (
+      {media.length > 0 ? (
         <View style={styles.mediaRow}>
-          {post.media.map((item, index) =>
-            item.type === 'image' ? (
-              <Image
-                key={`${item.uri}-${index}`}
-                source={{ uri: item.uri }}
-                style={styles.mediaThumb}
-              />
-            ) : (
-              <View key={`${item.uri}-${index}`} style={[styles.mediaThumb, styles.mediaVideo]}>
-                <Ionicons name="play-circle" size={26} color={colors.textInverse} />
+          {media.map((item, index) => (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={item.type === 'image' ? 'View photo' : 'View video'}
+              key={`${item.uri}-${index}`}
+              onPress={() => setViewerIndex(index)}
+              style={({ pressed }) => [styles.mediaThumbWrap, pressed && styles.mediaThumbPressed]}
+            >
+              {item.type === 'image' ? (
+                <Image source={{ uri: item.uri }} style={styles.mediaThumb} />
+              ) : (
+                <View style={[styles.mediaThumb, styles.mediaVideo]}>
+                  <Ionicons name="play-circle" size={26} color={colors.textInverse} />
+                </View>
+              )}
+              {/* Small cue that the thumbnail opens larger. */}
+              <View style={styles.expandBadge}>
+                <Ionicons name="expand-outline" size={11} color={colors.textInverse} />
               </View>
-            )
-          )}
+            </Pressable>
+          ))}
         </View>
       ) : null}
+
+      <MediaViewer
+        media={media}
+        onClose={() => setViewerIndex(null)}
+        startIndex={viewerIndex ?? 0}
+        visible={viewerIndex !== null}
+      />
 
       <Pressable onPress={() => onLike(post.id)} style={styles.likeRow}>
         <Ionicons
@@ -164,6 +183,24 @@ const makeStyles = (c: ThemePalette) =>
     flexWrap: 'wrap',
     gap: 8,
     marginBottom: 14,
+  },
+  mediaThumbWrap: {
+    width: 78,
+    height: 78,
+  },
+  mediaThumbPressed: {
+    opacity: 0.75,
+  },
+  expandBadge: {
+    position: 'absolute',
+    right: 4,
+    bottom: 4,
+    width: 18,
+    height: 18,
+    borderRadius: 5,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   mediaThumb: {
     width: 78,
