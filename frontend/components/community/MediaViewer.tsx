@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
-import * as Linking from 'expo-linking';
+import { useVideoPlayer, VideoView } from 'expo-video';
 import {
   ActivityIndicator,
   Image,
@@ -12,6 +12,37 @@ import {
   View,
 } from 'react-native';
 import { PostMedia } from '@smartflow/shared';
+
+/**
+ * Inline player for a video attachment.
+ *
+ * Split into its own component so `useVideoPlayer` mounts and unmounts with
+ * the video itself - calling it from the parent would mean running the hook
+ * for image attachments too, and keeping a player alive after closing.
+ */
+const VideoStage: React.FC<{ uri: string; width: number; height: number }> = ({
+  uri,
+  width,
+  height,
+}) => {
+  const player = useVideoPlayer(uri, (instance) => {
+    instance.loop = false;
+    // Autoplay: the user already tapped the thumbnail to watch it.
+    instance.play();
+  });
+
+  return (
+    <VideoView
+      // expo-video 57 replaced the old `allowsFullscreen` boolean with this.
+      allowsPictureInPicture
+      contentFit="contain"
+      fullscreenOptions={{ enable: true }}
+      nativeControls
+      player={player}
+      style={{ width, height: height * 0.7 }}
+    />
+  );
+};
 
 export interface MediaViewerProps {
   media: PostMedia[];
@@ -87,17 +118,8 @@ const MediaViewer: React.FC<MediaViewerProps> = ({ media, startIndex, visible, o
             ) : null}
           </View>
         ) : (
-          <View style={styles.stage}>
-            <Ionicons name="videocam" size={54} color="rgba(255,255,255,0.85)" />
-            <Text style={styles.videoLabel}>Video attachment</Text>
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => void Linking.openURL(item.uri)}
-              style={styles.videoButton}
-            >
-              <Ionicons name="play" size={16} color="#0B1524" />
-              <Text style={styles.videoButtonText}>Play video</Text>
-            </Pressable>
+          <View pointerEvents="box-none" style={styles.stage}>
+            <VideoStage height={height} uri={item.uri} width={width} />
           </View>
         )}
 
@@ -170,26 +192,6 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.75)',
     fontSize: 14,
     fontWeight: '500',
-  },
-  videoLabel: {
-    color: 'rgba(255,255,255,0.8)',
-    fontSize: 15,
-    fontWeight: '600',
-  },
-  videoButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: '#FFFFFF',
-    paddingHorizontal: 20,
-    paddingVertical: 11,
-    borderRadius: 12,
-    marginTop: 4,
-  },
-  videoButtonText: {
-    color: '#0B1524',
-    fontSize: 15,
-    fontWeight: '700',
   },
   closeButton: {
     position: 'absolute',
