@@ -105,6 +105,10 @@ const makeStyles = (c: ThemePalette) =>
     borderRadius: 14,
     padding: 14,
     marginBottom: 12,
+    // A drawn edge as well as the shadow: shadows carry the card on a light
+    // background but contribute almost nothing on a dark one.
+    borderWidth: 1,
+    borderColor: c.hairline,
     shadowColor: c.cardShadow,
     shadowOpacity: 0.08,
     shadowRadius: 12,

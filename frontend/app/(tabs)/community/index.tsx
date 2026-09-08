@@ -184,8 +184,11 @@ const makeStyles = (c: ThemePalette) =>
     backgroundColor: c.primary,
   },
   screen: {
+    // c.background, not c.surface: the post cards are c.surface, and in dark
+    // mode both were #142234 - the cards vanished into the page because a drop
+    // shadow does not read against a dark ground the way it does on white.
     flex: 1,
-    backgroundColor: c.surface,
+    backgroundColor: c.background,
   },
   content: {
     paddingBottom: 120,

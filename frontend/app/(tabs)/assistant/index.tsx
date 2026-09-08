@@ -126,8 +126,10 @@ const makeStyles = (c: ThemePalette) =>
     backgroundColor: c.primary,
   },
   screen: {
+    // Same reason as the Community tab: the chat bubbles are c.surface, so a
+    // c.surface page made them invisible in dark mode.
     flex: 1,
-    backgroundColor: c.surface,
+    backgroundColor: c.background,
   },
   content: {
     paddingBottom: 24,
