@@ -1,183 +1,157 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   ActiveCommunityTab,
   CommunityPost,
   ReportIncidentPayload,
   ShareUpdatePayload,
 } from '@smartflow/shared';
-import { COMMUNITY_API_BASE_URL as API_BASE_URL } from '../config/api';
+import {
+  PostKind,
+  createIncident,
+  createUpdate,
+  fetchPosts,
+  setLiked,
+} from '../lib/communityApi';
 
-const seedPosts: CommunityPost[] = [
-  {
-    id: 'community-1',
-    authorName: 'Maria Santos',
-    authorInitial: 'M',
-    avatarColor: '#152A48',
-    location: 'Bocaue',
-    timeAgo: '5m ago',
-    message: 'Traffic moving smoothly now, accident cleared! 🔥',
-    status: 'smooth',
-    likes: 12,
-    likedByUser: false,
-  },
-  {
-    id: 'community-2',
-    authorName: 'Juan Dela Cruz',
-    authorInitial: 'J',
-    avatarColor: '#0F766E',
-    location: 'Balintawak Cloverleaf',
-    timeAgo: '12m ago',
-    message: 'Heavy traffic here, been stuck for 15 mins already. Plan ahead!',
-    status: 'heavy',
-    likes: 8,
-    likedByUser: false,
-  },
-  {
-    id: 'incident-1',
-    authorName: 'Ana Reyes',
-    authorInitial: 'A',
-    avatarColor: '#2F4E7E',
-    location: 'San Fernando',
-    timeAgo: '20m ago',
-    message: 'Minor collision reported on the shoulder lane. Expect brief slowdown.',
-    status: 'incident',
-    likes: 5,
-    likedByUser: true,
-  },
-];
+const kindForTab = (tab: ActiveCommunityTab): PostKind =>
+  tab === 'incidents' ? 'incident' : 'update';
 
 export const useCommunityFeed = (): {
   posts: CommunityPost[];
   isLoading: boolean;
+  /** Non-null when the feed could not be loaded or a post could not be saved. */
+  error: string | null;
+  /** True while a post is being submitted, so the UI can show progress. */
+  isSubmitting: boolean;
   activeTab: ActiveCommunityTab;
   setActiveTab: (tab: ActiveCommunityTab) => void;
   handleLike: (id: string) => void;
-  handleShareUpdate: (payload: ShareUpdatePayload) => void;
-  handleReportIncident: (payload: ReportIncidentPayload) => void;
+  handleShareUpdate: (payload: ShareUpdatePayload) => Promise<void>;
+  handleReportIncident: (payload: ReportIncidentPayload) => Promise<void>;
   refresh: () => void;
 } => {
   const [posts, setPosts] = useState<CommunityPost[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [activeTab, setActiveTab] = useState<ActiveCommunityTab>('community');
+  const [refreshToken, setRefreshToken] = useState<number>(0);
 
-  const refresh = (): void => {
-    setIsLoading(true);
-
-    void (async () => {
-      try {
-        const response = await fetch(
-          `${API_BASE_URL}/api/community/posts?tab=${activeTab}&page=1&limit=20`
-        );
-
-        if (!response.ok) {
-          throw new Error('Failed to load community feed');
-        }
-
-        const payload = (await response.json()) as { data?: CommunityPost[] };
-        if (payload.data) {
-          setPosts(payload.data);
-        } else {
-          throw new Error('No community data returned');
-        }
-      } catch {
-        setPosts(
-          seedPosts.filter((post) =>
-            activeTab === 'community' ? post.status !== 'incident' : post.status === 'incident'
-          )
-        );
-      } finally {
-        setIsLoading(false);
-      }
-    })();
-  };
-
-  const handleLike = (id: string): void => {
-    setPosts((currentPosts) =>
-      currentPosts.map((post) =>
-        post.id === id
-          ? {
-              ...post,
-              likedByUser: !post.likedByUser,
-              likes: post.likedByUser ? post.likes - 1 : post.likes + 1,
-            }
-          : post
-      )
-    );
-
-    void fetch(`${API_BASE_URL}/api/community/posts/${id}/like`, {
-      method: 'PATCH',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ user_id: 'current-user' }),
-    }).catch(() => undefined);
-  };
-
-  const handleShareUpdate = (payload: ShareUpdatePayload): void => {
-    const newPost: CommunityPost = {
-      id: `community-${Date.now()}`,
-      authorName: payload.postedBy,
-      authorInitial: payload.postedBy[0]?.toUpperCase() ?? 'U',
-      avatarColor: '#152A48',
-      location: payload.location,
-      timeAgo: 'Just now',
-      message: payload.message,
-      status: payload.status,
-      likes: 0,
-      likedByUser: false,
-      media: payload.media,
-      direction: payload.direction,
-    };
-
-    if (activeTab === 'community') {
-      setPosts((currentPosts) => [newPost, ...currentPosts]);
-    }
-
-    void fetch(`${API_BASE_URL}/api/community/posts`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    }).catch(() => undefined);
-  };
-
-  const handleReportIncident = (payload: ReportIncidentPayload): void => {
-    const newIncident: CommunityPost = {
-      id: `incident-${Date.now()}`,
-      authorName: payload.reportedBy,
-      authorInitial: payload.reportedBy[0]?.toUpperCase() ?? 'U',
-      avatarColor: '#2F4E7E',
-      location: payload.location,
-      timeAgo: 'Just now',
-      message: payload.description,
-      status: payload.status,
-      likes: 0,
-      likedByUser: false,
-      media: payload.media,
-      direction: payload.direction,
-    };
-
-    if (activeTab === 'incidents') {
-      setPosts((currentPosts) => [newIncident, ...currentPosts]);
-    }
-
-    void fetch(`${API_BASE_URL}/api/community/incidents`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    }).catch(() => undefined);
-  };
+  const refresh = useCallback((): void => {
+    setRefreshToken((token) => token + 1);
+  }, []);
 
   useEffect(() => {
-    refresh();
-  }, [activeTab]);
+    let cancelled = false;
+
+    const load = async (): Promise<void> => {
+      setIsLoading(true);
+      setError(null);
+      try {
+        const next = await fetchPosts(kindForTab(activeTab));
+        if (!cancelled) {
+          setPosts(next);
+        }
+      } catch (caught) {
+        if (!cancelled) {
+          // No seed data to hide behind any more: an empty feed now means
+          // "nothing posted yet", so a failure has to say so out loud.
+          setPosts([]);
+          setError(caught instanceof Error ? caught.message : 'Could not load the feed.');
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false);
+        }
+      }
+    };
+
+    void load();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, refreshToken]);
+
+  const handleLike = useCallback(
+    (id: string): void => {
+      const target = posts.find((post) => post.id === id);
+      if (target === undefined) {
+        return;
+      }
+      const nextLiked = !target.likedByUser;
+
+      // Optimistic: a like should feel instant. Rolled back below if it fails.
+      setPosts((current) =>
+        current.map((post) =>
+          post.id === id
+            ? {
+                ...post,
+                likedByUser: nextLiked,
+                likes: nextLiked ? post.likes + 1 : Math.max(0, post.likes - 1),
+              }
+            : post,
+        ),
+      );
+
+      void setLiked(id, nextLiked).catch(() => {
+        setPosts((current) =>
+          current.map((post) =>
+            post.id === id
+              ? {
+                  ...post,
+                  likedByUser: target.likedByUser,
+                  likes: target.likes,
+                }
+              : post,
+          ),
+        );
+      });
+    },
+    [posts],
+  );
+
+  const submit = useCallback(
+    async (
+      create: () => Promise<CommunityPost>,
+      belongsToTab: ActiveCommunityTab,
+    ): Promise<void> => {
+      setIsSubmitting(true);
+      setError(null);
+      try {
+        const saved = await create();
+        // Only prepend when the user is looking at the tab it belongs to;
+        // switching tabs refetches anyway.
+        setPosts((current) => (activeTab === belongsToTab ? [saved, ...current] : current));
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : 'Could not save your post.');
+        throw caught;
+      } finally {
+        setIsSubmitting(false);
+      }
+    },
+    [activeTab],
+  );
+
+  const handleShareUpdate = useCallback(
+    async (payload: ShareUpdatePayload): Promise<void> => {
+      await submit(() => createUpdate(payload), 'community');
+    },
+    [submit],
+  );
+
+  const handleReportIncident = useCallback(
+    async (payload: ReportIncidentPayload): Promise<void> => {
+      await submit(() => createIncident(payload), 'incidents');
+    },
+    [submit],
+  );
 
   return {
     posts,
     isLoading,
+    error,
+    isSubmitting,
     activeTab,
     setActiveTab,
     handleLike,

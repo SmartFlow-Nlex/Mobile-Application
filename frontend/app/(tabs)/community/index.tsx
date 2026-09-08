@@ -30,11 +30,14 @@ export default function CommunityScreen(): React.ReactElement {
   const {
     posts,
     isLoading,
+    error,
+    isSubmitting,
     activeTab,
     setActiveTab,
     handleLike,
     handleShareUpdate,
     handleReportIncident,
+    refresh,
   } = useCommunityFeed();
   const [showShareModal, setShowShareModal] = useState<boolean>(false);
   const [showReportModal, setShowReportModal] = useState<boolean>(false);
@@ -97,12 +100,35 @@ export default function CommunityScreen(): React.ReactElement {
               <Text style={styles.sectionHeaderText}>{sectionTitle}</Text>
             </View>
 
+            {isSubmitting ? (
+              <Text style={styles.loadingText}>Posting...</Text>
+            ) : null}
+
             {isLoading ? (
               <Text style={styles.loadingText}>Loading community feed...</Text>
             ) : null}
 
-            {!isLoading && posts.length === 0 ? (
-              <Text style={styles.loadingText}>No posts available yet.</Text>
+            {/*
+              There is no sample data behind this any more, so an empty feed
+              genuinely means nobody has posted - and a failure has to say so
+              rather than looking like an empty feed.
+            */}
+            {error !== null ? (
+              <View style={styles.feedError}>
+                <Ionicons name="cloud-offline-outline" size={20} color={colors.dangerRed} />
+                <Text style={styles.feedErrorText}>{error}</Text>
+                <Pressable onPress={refresh} style={styles.retryButton}>
+                  <Text style={styles.retryButtonText}>Retry</Text>
+                </Pressable>
+              </View>
+            ) : null}
+
+            {!isLoading && error === null && posts.length === 0 ? (
+              <Text style={styles.loadingText}>
+                {activeTab === 'community'
+                  ? 'No updates yet. Be the first to share one.'
+                  : 'No incidents reported yet.'}
+              </Text>
             ) : null}
 
             {posts.map((post) => (
@@ -115,12 +141,12 @@ export default function CommunityScreen(): React.ReactElement {
 
         <ShareUpdateModal
           onClose={() => setShowShareModal(false)}
-          onSubmit={handleShareUpdate}
+          onSubmit={(payload) => void handleShareUpdate(payload).catch(() => undefined)}
           visible={showShareModal}
         />
         <ReportIncidentModal
           onClose={() => setShowReportModal(false)}
-          onSubmit={handleReportIncident}
+          onSubmit={(payload) => void handleReportIncident(payload).catch(() => undefined)}
           visible={showReportModal}
         />
 
@@ -277,6 +303,29 @@ const makeStyles = (c: ThemePalette) =>
   sectionHeaderText: {
     color: c.text,
     fontSize: Typography.fontSize.base,
+    fontWeight: Typography.fontWeight.bold,
+  },
+  feedError: {
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 22,
+    paddingHorizontal: 20,
+  },
+  feedErrorText: {
+    color: c.textSecondary,
+    fontSize: Typography.fontSize.sm,
+    fontWeight: Typography.fontWeight.medium,
+    textAlign: 'center',
+  },
+  retryButton: {
+    paddingHorizontal: 18,
+    paddingVertical: 9,
+    borderRadius: 10,
+    backgroundColor: c.primary,
+  },
+  retryButtonText: {
+    color: c.textInverse,
+    fontSize: Typography.fontSize.sm,
     fontWeight: Typography.fontWeight.bold,
   },
   loadingText: {
