@@ -1,37 +1,108 @@
-import React, { useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
+  ActivityIndicator,
+  Image,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
-  Image,
 } from 'react-native';
 import { useTheme, useThemedStyles } from '../../../theme';
 import AvatarButton from '../../../components/AvatarButton';
 import type { ThemePalette } from '../../../theme';
 import { Typography } from '../../../constants/typography';
+import { AssistantError, ChatMessage, askAssistant } from '../../../lib/assistantApi';
 
 const quickQuestions = [
-  'What time should I leave tomorrow?',
-  'Will there be traffic at Bocaue?',
-  'Best alternate route tonight?',
+  'How is NLEX right now?',
+  'May traffic ba sa Bocaue?',
+  'Is Balintawak clear southbound?',
 ] as const;
+
+const GREETING: ChatMessage = {
+  id: 'greeting',
+  role: 'assistant',
+  text: "Hello! I'm your SmartFlow NLEX Assistant. Ask me about traffic, exits or travel times along the NLEX corridor.",
+  at: Date.now(),
+};
+
+function formatTime(at: number): string {
+  return new Date(at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+}
 
 export default function AssistantScreen(): React.ReactElement {
   const { colors } = useTheme();
   const router = useRouter();
   const styles = useThemedStyles(makeStyles);
-  const [message, setMessage] = useState<string>('');
+  const [draft, setDraft] = useState<string>('');
+  const [messages, setMessages] = useState<ChatMessage[]>([GREETING]);
+  const [isThinking, setIsThinking] = useState<boolean>(false);
+  const [error, setError] = useState<string | null>(null);
+  const scrollRef = useRef<ScrollView>(null);
+
+  const send = useCallback(
+    async (text: string): Promise<void> => {
+      const question = text.trim();
+      if (question.length === 0 || isThinking) {
+        return;
+      }
+
+      const userMessage: ChatMessage = {
+        id: `u-${Date.now()}`,
+        role: 'user',
+        text: question,
+        at: Date.now(),
+      };
+
+      // History is what came before this question - the new one is sent
+      // separately, so including it here would duplicate it.
+      const history = messages.filter((message) => message.id !== 'greeting');
+
+      setMessages((current) => [...current, userMessage]);
+      setDraft('');
+      setError(null);
+      setIsThinking(true);
+
+      try {
+        const { reply } = await askAssistant(question, history);
+        setMessages((current) => [
+          ...current,
+          { id: `a-${Date.now()}`, role: 'assistant', text: reply, at: Date.now() },
+        ]);
+      } catch (caught) {
+        setError(
+          caught instanceof AssistantError
+            ? caught.message
+            : 'Something went wrong. Please try again.',
+        );
+      } finally {
+        setIsThinking(false);
+      }
+    },
+    [isThinking, messages],
+  );
+
+  const canSend = draft.trim().length > 0 && !isThinking;
 
   return (
     <SafeAreaView edges={['top']} style={styles.safeArea}>
-      <View style={styles.screen}>
-        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        style={styles.screen}
+      >
+        <ScrollView
+          contentContainerStyle={styles.content}
+          onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: true })}
+          ref={scrollRef}
+          showsVerticalScrollIndicator={false}
+        >
           <View style={styles.headerBar}>
             <View style={styles.brandGroup}>
               <View style={styles.logoWrap}>
@@ -62,21 +133,55 @@ export default function AssistantScreen(): React.ReactElement {
             </View>
           </View>
 
-          <View style={styles.chatRow}>
-            <View style={styles.assistantBadge}>
-              <Ionicons name="hardware-chip-outline" size={16} color={colors.textInverse} />
-            </View>
-
-            <View style={styles.chatColumn}>
-              <View style={styles.chatBubble}>
-                <Text style={styles.chatText}>
-                  Hello! I&apos;m your SmartFlow NLEX Assistant. How can I help you plan your
-                  journey today?
-                </Text>
+          {messages.map((message) =>
+            message.role === 'assistant' ? (
+              <View key={message.id} style={styles.chatRow}>
+                <View style={styles.assistantBadge}>
+                  <Ionicons
+                    name="hardware-chip-outline"
+                    size={16}
+                    color={colors.textInverse}
+                  />
+                </View>
+                <View style={styles.chatColumn}>
+                  <View style={styles.chatBubble}>
+                    <Text style={styles.chatText}>{message.text}</Text>
+                  </View>
+                  <Text style={styles.timeText}>{formatTime(message.at)}</Text>
+                </View>
               </View>
-              <Text style={styles.timeText}>12:22 AM</Text>
+            ) : (
+              <View key={message.id} style={styles.userRow}>
+                <View style={styles.userColumn}>
+                  <View style={styles.userBubble}>
+                    <Text style={styles.userText}>{message.text}</Text>
+                  </View>
+                  <Text style={styles.userTimeText}>{formatTime(message.at)}</Text>
+                </View>
+              </View>
+            ),
+          )}
+
+          {isThinking ? (
+            <View style={styles.chatRow}>
+              <View style={styles.assistantBadge}>
+                <Ionicons name="hardware-chip-outline" size={16} color={colors.textInverse} />
+              </View>
+              <View style={styles.chatColumn}>
+                <View style={[styles.chatBubble, styles.thinkingBubble]}>
+                  <ActivityIndicator color={colors.textSecondary} size="small" />
+                  <Text style={styles.thinkingText}>Checking live NLEX data...</Text>
+                </View>
+              </View>
             </View>
-          </View>
+          ) : null}
+
+          {error !== null ? (
+            <View style={styles.errorBanner}>
+              <Ionicons name="cloud-offline-outline" size={16} color={colors.dangerRed} />
+              <Text style={styles.errorText}>{error}</Text>
+            </View>
+          ) : null}
         </ScrollView>
 
         <View style={styles.composerShell}>
@@ -89,7 +194,16 @@ export default function AssistantScreen(): React.ReactElement {
               contentContainerStyle={styles.quickQuestionsRow}
             >
               {quickQuestions.map((item) => (
-                <Pressable key={item} style={styles.quickChip}>
+                <Pressable
+                  disabled={isThinking}
+                  key={item}
+                  onPress={() => void send(item)}
+                  style={({ pressed }) => [
+                    styles.quickChip,
+                    pressed && styles.quickChipPressed,
+                    isThinking && styles.quickChipDisabled,
+                  ]}
+                >
                   <Text numberOfLines={1} style={styles.quickChipText}>
                     {item}
                   </Text>
@@ -101,18 +215,33 @@ export default function AssistantScreen(): React.ReactElement {
 
           <View style={styles.inputRow}>
             <TextInput
-              onChangeText={setMessage}
+              editable={!isThinking}
+              onChangeText={setDraft}
+              onSubmitEditing={() => void send(draft)}
               placeholder="Ask about traffic, routes, or departure"
               placeholderTextColor={colors.textSecondary}
+              returnKeyType="send"
               style={styles.input}
-              value={message}
+              testID="assistant-input"
+              value={draft}
             />
-            <Pressable style={styles.sendButton}>
-              <Ionicons name="paper-plane-outline" size={20} color={colors.textInverse} />
+            <Pressable
+              accessibilityLabel="Send message"
+              accessibilityRole="button"
+              disabled={!canSend}
+              onPress={() => void send(draft)}
+              style={[styles.sendButton, canSend && styles.sendButtonActive]}
+              testID="assistant-send"
+            >
+              <Ionicons
+                name="paper-plane-outline"
+                size={20}
+                color={canSend ? colors.textInverse : colors.textTertiary}
+              />
             </Pressable>
           </View>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -166,14 +295,6 @@ const makeStyles = (c: ThemePalette) =>
     fontSize: Typography.fontSize.lg,
     fontWeight: Typography.fontWeight.bold,
   },
-  headerIconButton: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.12)',
-  },
   pageHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -226,18 +347,24 @@ const makeStyles = (c: ThemePalette) =>
     flex: 1,
   },
   chatBubble: {
-    maxWidth: '84%',
+    maxWidth: '90%',
     backgroundColor: c.surface,
     borderRadius: 14,
     paddingHorizontal: 14,
     paddingVertical: 12,
     borderWidth: 1,
     borderColor: c.border,
-    shadowColor: c.cardShadow,
-    shadowOpacity: 0.08,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 3,
+  },
+  thinkingBubble: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    alignSelf: 'flex-start',
+  },
+  thinkingText: {
+    color: c.textSecondary,
+    fontSize: Typography.fontSize.sm,
+    fontWeight: Typography.fontWeight.medium,
   },
   chatText: {
     color: c.text,
@@ -249,6 +376,49 @@ const makeStyles = (c: ThemePalette) =>
     fontSize: Typography.fontSize.xs,
     marginTop: 8,
     marginLeft: 8,
+  },
+  userRow: {
+    paddingHorizontal: 16,
+    paddingTop: 18,
+    alignItems: 'flex-end',
+  },
+  userColumn: {
+    maxWidth: '86%',
+    alignItems: 'flex-end',
+  },
+  userBubble: {
+    backgroundColor: c.primary,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  userText: {
+    color: c.textInverse,
+    fontSize: Typography.fontSize.base,
+    lineHeight: 22,
+  },
+  userTimeText: {
+    color: c.textTertiary,
+    fontSize: Typography.fontSize.xs,
+    marginTop: 6,
+    marginRight: 4,
+  },
+  errorBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginHorizontal: 16,
+    marginTop: 18,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: c.statusHeavyBg,
+  },
+  errorText: {
+    color: c.dangerRed,
+    fontSize: Typography.fontSize.xs,
+    fontWeight: Typography.fontWeight.semibold,
+    flex: 1,
   },
   composerShell: {
     borderTopWidth: 1,
@@ -279,6 +449,12 @@ const makeStyles = (c: ThemePalette) =>
     justifyContent: 'center',
     paddingHorizontal: 10,
   },
+  quickChipPressed: {
+    backgroundColor: c.pressed,
+  },
+  quickChipDisabled: {
+    opacity: 0.5,
+  },
   quickChipText: {
     color: c.text,
     fontSize: Typography.fontSize.xs,
@@ -306,5 +482,8 @@ const makeStyles = (c: ThemePalette) =>
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: c.borderLight,
+  },
+  sendButtonActive: {
+    backgroundColor: c.primary,
   },
 });

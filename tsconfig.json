@@ -1,4 +1,6 @@
 {
   "compilerOptions": {},
-  "extends": "expo/tsconfig.base"
+  "extends": "expo/tsconfig.base",
+  "//": "backend/ is Node server code with its own stricter tsconfig (strict: true). Compiling it here under Expo's non-strict base produced false errors - discriminated unions do not narrow without strictNullChecks.",
+  "exclude": ["node_modules", "android", "backend", "dist"]
 }

@@ -14,6 +14,7 @@ import forecastsRoutes from './routes/forecasts';
 import hotspotsRoutes from './routes/hotspots';
 import communityRoutes from './routes/community';
 import usersRoutes from './routes/users';
+import assistantRoutes from './routes/assistant';
 
 const app: Application = express();
 const PORT: number = parseInt(process.env.PORT || '3000', 10);
@@ -61,6 +62,7 @@ app.use('/api/v1/forecasts', forecastsRoutes);
 app.use('/api/v1/hotspots', hotspotsRoutes);
 app.use('/api/v1/community', communityRoutes);
 app.use('/api/v1/users', usersRoutes);
+app.use('/api/assistant', assistantRoutes);
 app.use('/api/community', communityRoutes);
 app.use('/api/users', usersRoutes);
 
