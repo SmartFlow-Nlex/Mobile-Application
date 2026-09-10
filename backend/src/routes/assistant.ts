@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import OpenAI from 'openai';
 import type {
+  ChatCompletionCreateParamsNonStreaming,
   ChatCompletionMessageParam,
   ChatCompletionTool,
 } from 'openai/resources/chat/completions';
@@ -31,13 +32,39 @@ const QWEN_BASE_URL =
   process.env.QWEN_BASE_URL ?? 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1';
 const QWEN_MODEL = process.env.QWEN_MODEL ?? 'qwen3.8-flash';
 
+/**
+ * Zero Data Retention.
+ *
+ * Only meaningful on OpenRouter: with it set, OpenRouter routes the request
+ * ONLY to endpoints that carry a zero-retention policy, and refuses rather
+ * than silently falling back to one that logs. That turns "the provider says
+ * it does not keep prompts" from something you take on trust into something
+ * enforced at the routing layer.
+ *
+ * Sent only when enabled - a provider that does not understand the field
+ * could reject the whole request.
+ */
+const LLM_ZDR = (process.env.LLM_ZDR ?? '').trim().toLowerCase() === 'true';
+
+/** OpenRouter asks callers to identify themselves; harmless elsewhere. */
+const isOpenRouter = QWEN_BASE_URL.includes('openrouter.ai');
+
 export const isAssistantConfigured = QWEN_API_KEY.length > 0;
 
 /** Built lazily so an unconfigured server still starts and reports why. */
 let client: OpenAI | null = null;
 function getClient(): OpenAI {
   if (client === null) {
-    client = new OpenAI({ apiKey: QWEN_API_KEY, baseURL: QWEN_BASE_URL });
+    client = new OpenAI({
+      apiKey: QWEN_API_KEY,
+      baseURL: QWEN_BASE_URL,
+      defaultHeaders: isOpenRouter
+        ? {
+            'HTTP-Referer': 'https://github.com/SmartFlow-Nlex/Mobile-Application',
+            'X-Title': 'SmartFlow NLEX Assistant',
+          }
+        : undefined,
+    });
   }
   return client;
 }
@@ -215,14 +242,23 @@ router.post('/chat', async (req: Request, res: Response): Promise<void> => {
     const toolsUsed: string[] = [];
 
     for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
-      const completion = await getClient().chat.completions.create({
+      const params: ChatCompletionCreateParamsNonStreaming = {
         model: QWEN_MODEL,
         messages,
         tools,
         tool_choice: 'auto',
         // Picking the right tool should not vary between identical questions.
         temperature: 0.2,
-      });
+      };
+
+      // `provider` is an OpenRouter extension rather than part of the OpenAI
+      // schema, so it is attached by cast - and only when switched on, since a
+      // provider that does not know the field could reject the request.
+      const completion = await getClient().chat.completions.create(
+        LLM_ZDR
+          ? ({ ...params, provider: { zdr: true } } as ChatCompletionCreateParamsNonStreaming)
+          : params,
+      );
 
       const choice = completion.choices[0]?.message;
       if (choice === undefined) {
