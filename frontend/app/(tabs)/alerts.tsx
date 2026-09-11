@@ -392,7 +392,9 @@ const makeStyles = (c: ThemePalette) =>
     marginBottom: 14,
   },
   settingsTitle: {
-    color: '#000000',
+    // Was hardcoded black, which is invisible on the dark theme's card. Every
+    // other title on this screen already uses the palette.
+    color: c.text,
     fontSize: Typography.fontSize.base,
     fontWeight: Typography.fontWeight.bold,
   },
