@@ -36,6 +36,10 @@ services:
       # dashboard. The LLM key must never be committed.
       - key: QWEN_API_KEY
         sync: false
-      # Pending: the public address of the team's AWS dashboard/Waze system.
+      # The dashboard/Waze system is deployed at the end of development. Until
+      # then this points nowhere reachable, and that is handled: the assistant
+      # reports the data as unavailable rather than inventing traffic. Change it
+      # in Render's dashboard when the dashboard backend goes live - no code
+      # change and no redeploy of the mobile app needed.
       - key: CORRIDOR_API_URL
-        sync: false
+        value: http://localhost:4000
