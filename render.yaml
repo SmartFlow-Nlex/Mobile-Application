@@ -16,7 +16,13 @@ services:
     plan: free
     # Closest region to the Philippines; switch to oregon if singapore is busy.
     region: singapore
-    buildCommand: npm install && npm run build --workspace backend
+    # --include=dev is load-bearing. NODE_ENV=production is set below for the
+    # running server, but npm reads the same variable during the build and
+    # omits devDependencies - which is where @types/express, @types/cors and
+    # typescript itself live. Without this the install succeeds and then tsc
+    # fails with TS7016 "Could not find a declaration file for module
+    # 'express'". The types are only needed to compile, never at runtime.
+    buildCommand: npm install --include=dev && npm run build --workspace backend
     startCommand: npm run start --workspace backend
     healthCheckPath: /health
     envVars:
