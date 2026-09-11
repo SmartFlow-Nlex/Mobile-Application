@@ -1,0 +1,41 @@
+# Render Blueprint for the SmartFlow NLEX backend.
+#
+# Deploys ONLY the Express backend (the chatbot and the corridor proxy). Auth,
+# community posts and media already live in Supabase and need no server of ours.
+#
+# Why the build runs from the repo root rather than backend/: this is an npm
+# workspaces monorepo and backend depends on @smartflow/shared, which exists
+# only as a sibling folder. Installing inside backend/ alone would send npm to
+# the public registry looking for a package that was never published. The cost
+# is that the root install also pulls the Expo/React Native frontend packages,
+# which makes the first build a few minutes long.
+services:
+  - type: web
+    name: smartflow-backend
+    runtime: node
+    plan: free
+    # Closest region to the Philippines; switch to oregon if singapore is busy.
+    region: singapore
+    buildCommand: npm install && npm run build --workspace backend
+    startCommand: npm run start --workspace backend
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # The mobile app is not a browser and sends no Origin header, so this is
+      # not the security boundary it would be for a web app.
+      - key: CORS_ORIGIN
+        value: "*"
+      - key: QWEN_BASE_URL
+        value: https://openrouter.ai/api/v1
+      - key: QWEN_MODEL
+        value: qwen/qwen3.8-flash
+      - key: LLM_ZDR
+        value: "true"
+      # sync: false keeps these OUT of the repo - Render prompts for them in the
+      # dashboard. The LLM key must never be committed.
+      - key: QWEN_API_KEY
+        sync: false
+      # Pending: the public address of the team's AWS dashboard/Waze system.
+      - key: CORRIDOR_API_URL
+        sync: false

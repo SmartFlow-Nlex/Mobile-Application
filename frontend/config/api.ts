@@ -65,11 +65,21 @@ export const COMMUNITY_API_BASE_URL =
   process.env.EXPO_PUBLIC_COMMUNITY_API_URL ?? `http://${API_HOST}:${COMMUNITY_API_PORT}`;
 
 /**
- * SmartFlow's own Express backend - the same host as the community API, but
- * named for what it is. It holds the assistant's LLM key, which is why chat
- * requests go through it rather than straight from the app to the model.
+ * SmartFlow's own Express backend - the assistant chat lives here, and so does
+ * the LLM key, which is why chat requests go through this rather than straight
+ * from the app to the model.
+ *
+ * Once the backend is deployed (see render.yaml at the repo root), set this to
+ * the public URL and the app stops depending on anyone's laptop being on, or on
+ * the LAN address of the day:
+ *
+ *   EXPO_PUBLIC_BACKEND_API_URL=https://smartflow-backend.onrender.com
+ *
+ * Falls back to the community host, so a purely local setup still works with
+ * nothing configured.
  */
-export const BACKEND_API_BASE_URL = COMMUNITY_API_BASE_URL;
+export const BACKEND_API_BASE_URL =
+  process.env.EXPO_PUBLIC_BACKEND_API_URL ?? COMMUNITY_API_BASE_URL;
 
 /** The assistant reasons and calls tools, so it needs longer than a data fetch. */
 export const ASSISTANT_TIMEOUT_MS = 45000;

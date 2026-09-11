@@ -249,6 +249,12 @@ router.post('/chat', async (req: Request, res: Response): Promise<void> => {
         tool_choice: 'auto',
         // Picking the right tool should not vary between identical questions.
         temperature: 0.2,
+        // Replies are two or three sentences; this is already generous. Without
+        // it the model's full 131k output ceiling is assumed, and OpenRouter
+        // rejects the request up front unless the account can afford that worst
+        // case - a 402 even though the real answer is ~80 tokens. It also caps
+        // what a runaway response can cost.
+        max_tokens: 600,
       };
 
       // `provider` is an OpenRouter extension rather than part of the OpenAI
