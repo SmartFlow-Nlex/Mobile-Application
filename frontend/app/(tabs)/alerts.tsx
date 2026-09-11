@@ -19,6 +19,14 @@ import { Typography } from '../../constants/typography';
 
 type AlertTone = 'critical' | 'warning';
 
+/**
+ * Maintenance notices are grouped on their own because they behave differently
+ * from traffic alerts: they are scheduled rather than urgent, they arrive
+ * steadily, and they would otherwise bury the incident alerts a driver needs
+ * to see now.
+ */
+type AlertCategory = 'maintenance' | 'traffic';
+
 /** Alert tints come from the palette so they stay legible in both themes. */
 function alertTone(tone: AlertTone, c: ThemePalette): { solid: string; background: string } {
   return tone === 'critical'
@@ -35,6 +43,7 @@ interface AlertItem {
   icon: keyof typeof Ionicons.glyphMap;
   tone: AlertTone;
   unread: boolean;
+  category: AlertCategory;
 }
 
 const alertFeatures = [
@@ -55,6 +64,7 @@ const initialAlerts: AlertItem[] = [
     icon: 'trending-up-outline',
     tone: 'critical',
     unread: true,
+    category: 'traffic',
   },
   {
     id: 'incident-cluster-marilao',
@@ -66,6 +76,7 @@ const initialAlerts: AlertItem[] = [
     icon: 'warning-outline',
     tone: 'critical',
     unread: true,
+    category: 'traffic',
   },
   {
     id: 'maintenance-balintawak',
@@ -77,6 +88,31 @@ const initialAlerts: AlertItem[] = [
     icon: 'construct-outline',
     tone: 'warning',
     unread: false,
+    category: 'maintenance',
+  },
+  {
+    id: 'maintenance-candaba',
+    title: 'Candaba Viaduct Re-blocking',
+    message:
+      'Right lane closed northbound at the Candaba Viaduct until Friday 5 AM for deck repairs.',
+    timeAgo: '3h ago',
+    priority: 'medium priority',
+    icon: 'construct-outline',
+    tone: 'warning',
+    unread: true,
+    category: 'maintenance',
+  },
+  {
+    id: 'maintenance-marilao-drainage',
+    title: 'Drainage Works at Marilao',
+    message:
+      'Shoulder closed southbound near Marilao Exit for drainage clearing, 9 PM to 4 AM nightly.',
+    timeAgo: '6h ago',
+    priority: 'medium priority',
+    icon: 'construct-outline',
+    tone: 'warning',
+    unread: false,
+    category: 'maintenance',
   },
 ];
 
@@ -86,11 +122,34 @@ export default function AlertsScreen(): React.ReactElement {
   const styles = useThemedStyles(makeStyles);
   const [notificationsEnabled, setNotificationsEnabled] = useState<boolean>(false);
   const [alerts, setAlerts] = useState<AlertItem[]>(initialAlerts);
+  // Open by default: collapsing is the user's choice, and silently hiding an
+  // unread notice on first load would be worse than a slightly longer list.
+  const [maintenanceOpen, setMaintenanceOpen] = useState<boolean>(true);
 
-  const unreadCount = useMemo(
-    () => alerts.filter((item) => item.unread).length,
+  const maintenanceAlerts = useMemo(
+    () => alerts.filter((item) => item.category === 'maintenance'),
     [alerts]
   );
+
+  const otherAlerts = useMemo(
+    () => alerts.filter((item) => item.category !== 'maintenance'),
+    [alerts]
+  );
+
+  const maintenanceUnread = useMemo(
+    () => maintenanceAlerts.filter((item) => item.unread).length,
+    [maintenanceAlerts]
+  );
+
+  /** Counts only the list this heading sits above; maintenance has its own. */
+  const unreadCount = useMemo(
+    () => otherAlerts.filter((item) => item.unread).length,
+    [otherAlerts]
+  );
+
+  // "Mark all as read" means all of them, so it stays available while anything
+  // is unread - including a maintenance notice hidden inside a collapsed group.
+  const totalUnread = unreadCount + maintenanceUnread;
 
   const handleMarkAllAsRead = (): void => {
     setAlerts((current) => current.map((item) => ({ ...item, unread: false })));
@@ -101,6 +160,67 @@ export default function AlertsScreen(): React.ReactElement {
       current.map((item) => (item.id === id ? { ...item, unread: false } : item))
     );
   };
+
+  /** One alert card. Shared so a maintenance notice looks like any other. */
+  const renderAlert = (item: AlertItem): React.ReactElement => (
+    <Pressable
+      key={item.id}
+      onPress={() => handleOpenAlert(item.id)}
+      style={({ pressed }) => [
+        styles.alertCard,
+        item.unread && styles.alertCardUnread,
+        pressed && styles.alertCardPressed,
+      ]}
+    >
+      <View
+        style={[
+          styles.alertIconWrap,
+          { backgroundColor: alertTone(item.tone, colors).background },
+        ]}
+      >
+        <Ionicons name={item.icon} size={20} color={alertTone(item.tone, colors).solid} />
+      </View>
+
+      <View style={styles.alertContent}>
+        <View style={styles.alertTopRow}>
+          <Text style={styles.alertTitle}>{item.title}</Text>
+          <View style={styles.alertActions}>
+            {item.unread ? <View style={styles.unreadDot} /> : null}
+            <Ionicons name="chevron-forward" size={18} color={colors.textTertiary} />
+          </View>
+        </View>
+
+        <Text style={styles.alertMessage}>{item.message}</Text>
+
+        <View style={styles.alertMetaRow}>
+          <View style={styles.timeRow}>
+            <Ionicons name="time-outline" size={13} color={colors.textSecondary} />
+            <Text style={styles.timeText}>{item.timeAgo}</Text>
+          </View>
+
+          <View
+            style={[
+              styles.priorityPill,
+              item.priority === 'high priority'
+                ? styles.priorityPillHigh
+                : styles.priorityPillMedium,
+            ]}
+          >
+            <Text
+              style={[
+                styles.priorityText,
+                item.priority === 'high priority'
+                  ? styles.priorityTextHigh
+                  : styles.priorityTextMedium,
+              ]}
+            >
+              {item.priority}
+            </Text>
+          </View>
+        </View>
+      </View>
+    </Pressable>
+  );
 
   return (
     <SafeAreaView edges={['top']} style={styles.safeArea}>
@@ -158,15 +278,62 @@ export default function AlertsScreen(): React.ReactElement {
               </View>
             </View>
 
+            {maintenanceAlerts.length > 0 ? (
+              <View style={styles.maintenanceSection}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityState={{ expanded: maintenanceOpen }}
+                  accessibilityLabel={`Maintenance, ${maintenanceAlerts.length} notice${
+                    maintenanceAlerts.length === 1 ? '' : 's'
+                  }${maintenanceUnread > 0 ? `, ${maintenanceUnread} unread` : ''}`}
+                  onPress={() => setMaintenanceOpen((open) => !open)}
+                  style={({ pressed }) => [
+                    styles.maintenanceHeader,
+                    pressed && styles.alertCardPressed,
+                  ]}
+                >
+                  <View style={styles.maintenanceHeaderLeft}>
+                    <View style={styles.maintenanceIconWrap}>
+                      <Ionicons
+                        name="construct-outline"
+                        size={18}
+                        color={colors.statusHighSolid}
+                      />
+                    </View>
+                    <Text style={styles.maintenanceTitle}>Maintenance</Text>
+                    <View style={styles.maintenanceCountPill}>
+                      <Text style={styles.maintenanceCountText}>
+                        {maintenanceAlerts.length}
+                      </Text>
+                    </View>
+                    {/* Survives collapsing, so a new notice is never hidden. */}
+                    {maintenanceUnread > 0 ? <View style={styles.unreadDot} /> : null}
+                  </View>
+
+                  <Ionicons
+                    name={maintenanceOpen ? 'chevron-up' : 'chevron-down'}
+                    size={18}
+                    color={colors.textSecondary}
+                  />
+                </Pressable>
+
+                {maintenanceOpen ? (
+                  <View style={styles.maintenanceList}>
+                    {maintenanceAlerts.map(renderAlert)}
+                  </View>
+                ) : null}
+              </View>
+            ) : null}
+
             <View style={styles.unreadHeader}>
               <Text style={styles.unreadTitle}>
                 {unreadCount} unread alert{unreadCount === 1 ? '' : 's'}
               </Text>
-              <Pressable disabled={unreadCount === 0} onPress={handleMarkAllAsRead}>
+              <Pressable disabled={totalUnread === 0} onPress={handleMarkAllAsRead}>
                 <Text
                   style={[
                     styles.markReadText,
-                    unreadCount === 0 && styles.markReadTextDisabled,
+                    totalUnread === 0 && styles.markReadTextDisabled,
                   ]}
                 >
                   Mark all as read
@@ -174,75 +341,7 @@ export default function AlertsScreen(): React.ReactElement {
               </Pressable>
             </View>
 
-            <View style={styles.alertList}>
-              {alerts.map((item) => (
-                <Pressable
-                  key={item.id}
-                  onPress={() => handleOpenAlert(item.id)}
-                  style={({ pressed }) => [
-                    styles.alertCard,
-                    item.unread && styles.alertCardUnread,
-                    pressed && styles.alertCardPressed,
-                  ]}
-                >
-                  <View
-                    style={[
-                      styles.alertIconWrap,
-                      { backgroundColor: alertTone(item.tone, colors).background },
-                    ]}
-                  >
-                    <Ionicons
-                      name={item.icon}
-                      size={20}
-                      color={alertTone(item.tone, colors).solid}
-                    />
-                  </View>
-
-                  <View style={styles.alertContent}>
-                    <View style={styles.alertTopRow}>
-                      <Text style={styles.alertTitle}>{item.title}</Text>
-                      <View style={styles.alertActions}>
-                        {item.unread ? <View style={styles.unreadDot} /> : null}
-                        <Ionicons
-                          name="chevron-forward"
-                          size={18}
-                          color={colors.textTertiary}
-                        />
-                      </View>
-                    </View>
-
-                    <Text style={styles.alertMessage}>{item.message}</Text>
-
-                    <View style={styles.alertMetaRow}>
-                      <View style={styles.timeRow}>
-                        <Ionicons name="time-outline" size={13} color={colors.textSecondary} />
-                        <Text style={styles.timeText}>{item.timeAgo}</Text>
-                      </View>
-
-                      <View
-                        style={[
-                          styles.priorityPill,
-                          item.priority === 'high priority'
-                            ? styles.priorityPillHigh
-                            : styles.priorityPillMedium,
-                        ]}
-                      >
-                        <Text
-                          style={[
-                            styles.priorityText,
-                            item.priority === 'high priority'
-                              ? styles.priorityTextHigh
-                              : styles.priorityTextMedium,
-                          ]}
-                        >
-                          {item.priority}
-                        </Text>
-                      </View>
-                    </View>
-                  </View>
-                </Pressable>
-              ))}
-            </View>
+            <View style={styles.alertList}>{otherAlerts.map(renderAlert)}</View>
           </View>
         </ScrollView>
 
@@ -375,6 +474,64 @@ const makeStyles = (c: ThemePalette) =>
     color: c.textSecondary,
     fontSize: Typography.fontSize.sm,
     fontWeight: Typography.fontWeight.medium,
+  },
+  maintenanceSection: {
+    marginBottom: 20,
+  },
+  maintenanceHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    backgroundColor: c.surface,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: c.border,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    shadowColor: c.cardShadow,
+    shadowOpacity: 0.04,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 2,
+  },
+  maintenanceHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flex: 1,
+  },
+  maintenanceIconWrap: {
+    width: 30,
+    height: 30,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: c.statusHighBg,
+  },
+  maintenanceTitle: {
+    color: c.text,
+    fontSize: Typography.fontSize.base,
+    fontWeight: Typography.fontWeight.bold,
+  },
+  maintenanceCountPill: {
+    minWidth: 22,
+    alignItems: 'center',
+    borderRadius: 999,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    backgroundColor: c.surfaceMuted,
+    borderWidth: 1,
+    borderColor: c.border,
+  },
+  maintenanceCountText: {
+    color: c.textSecondary,
+    fontSize: Typography.fontSize.xs,
+    fontWeight: Typography.fontWeight.bold,
+  },
+  maintenanceList: {
+    gap: 12,
+    marginTop: 12,
   },
   unreadHeader: {
     flexDirection: 'row',
