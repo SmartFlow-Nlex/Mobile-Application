@@ -8,6 +8,7 @@ import {
   useSegments,
 } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import { AlertsProvider } from '../frontend/alerts';
 import { AuthProvider, useAuth } from '../frontend/auth';
 import { ThemeProvider, useTheme } from '../frontend/theme';
 
@@ -106,7 +107,14 @@ export default function RootLayout(): React.ReactElement {
   return (
     <ThemeProvider>
       <AuthProvider>
-        <ThemedStack />
+        {/*
+         * Above the navigator because the tab bar reads the unread count for
+         * its badge, and that has to work whether or not the Alerts screen has
+         * ever been opened.
+         */}
+        <AlertsProvider>
+          <ThemedStack />
+        </AlertsProvider>
       </AuthProvider>
     </ThemeProvider>
   );

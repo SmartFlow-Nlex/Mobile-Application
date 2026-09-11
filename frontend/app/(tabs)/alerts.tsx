@@ -12,20 +12,11 @@ import {
   View,
 } from 'react-native';
 import AIAssistantFAB from '../../components/community/AIAssistantFAB';
+import { useAlerts, type AlertItem, type AlertTone } from '../../alerts';
 import { useTheme, useThemedStyles } from '../../theme';
 import AvatarButton from '../../components/AvatarButton';
 import type { ThemePalette } from '../../theme';
 import { Typography } from '../../constants/typography';
-
-type AlertTone = 'critical' | 'warning';
-
-/**
- * Maintenance notices are grouped on their own because they behave differently
- * from traffic alerts: they are scheduled rather than urgent, they arrive
- * steadily, and they would otherwise bury the incident alerts a driver needs
- * to see now.
- */
-type AlertCategory = 'maintenance' | 'traffic';
 
 /** Alert tints come from the palette so they stay legible in both themes. */
 function alertTone(tone: AlertTone, c: ThemePalette): { solid: string; background: string } {
@@ -33,25 +24,6 @@ function alertTone(tone: AlertTone, c: ThemePalette): { solid: string; backgroun
     ? { solid: c.statusHeavySolid, background: c.statusHeavyBg }
     : { solid: c.statusHighSolid, background: c.statusHighBg };
 }
-
-interface AlertItem {
-  id: string;
-  title: string;
-  message: string;
-  timeAgo: string;
-  priority: 'high priority' | 'medium priority';
-  icon: keyof typeof Ionicons.glyphMap;
-  tone: AlertTone;
-  unread: boolean;
-  category: AlertCategory;
-}
-
-const alertFeatures = [
-  'Predictive congestion alerts',
-  'Event-driven traffic surges',
-  'Maintenance schedules',
-  'Incident clusters',
-] as const;
 
 /**
  * Above this many maintenance notices the group starts collapsed, so a backlog
@@ -61,75 +33,21 @@ const alertFeatures = [
  */
 const MAINTENANCE_COLLAPSE_THRESHOLD = 4;
 
-const initialAlerts: AlertItem[] = [
-  {
-    id: 'high-traffic-bocaue',
-    title: 'High Traffic Predicted',
-    message:
-      'Severe congestion expected at Bocaue Exit tomorrow 5-8 PM due to Philippine Arena concert.',
-    timeAgo: '30m ago',
-    priority: 'high priority',
-    icon: 'trending-up-outline',
-    tone: 'critical',
-    unread: true,
-    category: 'traffic',
-  },
-  {
-    id: 'incident-cluster-marilao',
-    title: 'Incident Cluster Detected',
-    message:
-      'Multiple accident reports near Marilao. ML system suggests avoiding this segment.',
-    timeAgo: '45m ago',
-    priority: 'high priority',
-    icon: 'warning-outline',
-    tone: 'critical',
-    unread: true,
-    category: 'traffic',
-  },
-  {
-    id: 'maintenance-balintawak',
-    title: 'Scheduled Maintenance Tonight',
-    message:
-      'Road resurfacing at Balintawak begins at 11 PM. Expect lane reductions and slower flow.',
-    timeAgo: '1h ago',
-    priority: 'medium priority',
-    icon: 'construct-outline',
-    tone: 'warning',
-    unread: false,
-    category: 'maintenance',
-  },
-  {
-    id: 'maintenance-candaba',
-    title: 'Candaba Viaduct Re-blocking',
-    message:
-      'Right lane closed northbound at the Candaba Viaduct until Friday 5 AM for deck repairs.',
-    timeAgo: '3h ago',
-    priority: 'medium priority',
-    icon: 'construct-outline',
-    tone: 'warning',
-    unread: true,
-    category: 'maintenance',
-  },
-  {
-    id: 'maintenance-marilao-drainage',
-    title: 'Drainage Works at Marilao',
-    message:
-      'Shoulder closed southbound near Marilao Exit for drainage clearing, 9 PM to 4 AM nightly.',
-    timeAgo: '6h ago',
-    priority: 'medium priority',
-    icon: 'construct-outline',
-    tone: 'warning',
-    unread: false,
-    category: 'maintenance',
-  },
-];
+const alertFeatures = [
+  'Predictive congestion alerts',
+  'Event-driven traffic surges',
+  'Maintenance schedules',
+  'Incident clusters',
+] as const;
 
 export default function AlertsScreen(): React.ReactElement {
   const { colors } = useTheme();
   const router = useRouter();
   const styles = useThemedStyles(makeStyles);
+  const { alerts, markAsRead, markAllAsRead } = useAlerts();
   const [notificationsEnabled, setNotificationsEnabled] = useState<boolean>(false);
-  const [alerts, setAlerts] = useState<AlertItem[]>(initialAlerts);
+  // Independent of maintenance: a user may want either group out of the way.
+  const [unreadCollapsed, setUnreadCollapsed] = useState<boolean>(false);
   // null until the user taps: the group follows the count rule on its own, and
   // stops the moment they express a preference. Deriving it rather than seeding
   // useState also means the rule still applies once these alerts come from the
@@ -165,13 +83,11 @@ export default function AlertsScreen(): React.ReactElement {
     maintenanceToggled ?? maintenanceAlerts.length < MAINTENANCE_COLLAPSE_THRESHOLD;
 
   const handleMarkAllAsRead = (): void => {
-    setAlerts((current) => current.map((item) => ({ ...item, unread: false })));
+    markAllAsRead();
   };
 
   const handleOpenAlert = (id: string): void => {
-    setAlerts((current) =>
-      current.map((item) => (item.id === id ? { ...item, unread: false } : item))
-    );
+    markAsRead(id);
   };
 
   /** One alert card. Shared so a maintenance notice looks like any other. */
@@ -314,13 +230,13 @@ export default function AlertsScreen(): React.ReactElement {
                     </View>
                     {/* Survives collapsing, so a new notice is never hidden. */}
                     {maintenanceUnread > 0 ? <View style={styles.unreadDot} /> : null}
+                    {/* Last, so the row ends on its control rather than a dot. */}
+                    <Ionicons
+                      name={maintenanceOpen ? 'chevron-up' : 'chevron-down'}
+                      size={20}
+                      color={colors.textSecondary}
+                    />
                   </View>
-
-                  <Ionicons
-                    name={maintenanceOpen ? 'chevron-up' : 'chevron-down'}
-                    size={22}
-                    color={colors.textSecondary}
-                  />
                 </Pressable>
 
                 {maintenanceOpen ? (
@@ -332,9 +248,31 @@ export default function AlertsScreen(): React.ReactElement {
             ) : null}
 
             <View style={styles.unreadHeader}>
-              <Text style={styles.unreadTitle}>
-                {unreadCount} unread alert{unreadCount === 1 ? '' : 's'}
-              </Text>
+              {/* Two sibling Pressables rather than one nested inside the
+                  other: nesting makes the outer row swallow taps meant for
+                  "Mark all as read". */}
+              <Pressable
+                accessibilityRole="button"
+                accessibilityState={{ expanded: !unreadCollapsed }}
+                accessibilityLabel={`${unreadCount} unread alert${
+                  unreadCount === 1 ? '' : 's'
+                }`}
+                onPress={() => setUnreadCollapsed((collapsed) => !collapsed)}
+                style={({ pressed }) => [
+                  styles.unreadTitleGroup,
+                  pressed && styles.maintenanceHeaderPressed,
+                ]}
+              >
+                <Text style={styles.unreadTitle}>
+                  {unreadCount} unread alert{unreadCount === 1 ? '' : 's'}
+                </Text>
+                <Ionicons
+                  name={unreadCollapsed ? 'chevron-down' : 'chevron-up'}
+                  size={20}
+                  color={colors.textSecondary}
+                />
+              </Pressable>
+
               <Pressable disabled={totalUnread === 0} onPress={handleMarkAllAsRead}>
                 <Text
                   style={[
@@ -347,7 +285,9 @@ export default function AlertsScreen(): React.ReactElement {
               </Pressable>
             </View>
 
-            <View style={styles.alertList}>{otherAlerts.map(renderAlert)}</View>
+            {unreadCollapsed ? null : (
+              <View style={styles.alertList}>{otherAlerts.map(renderAlert)}</View>
+            )}
           </View>
         </ScrollView>
 
@@ -530,6 +470,11 @@ const makeStyles = (c: ThemePalette) =>
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: 14,
+  },
+  unreadTitleGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
   },
   unreadTitle: {
     color: c.text,

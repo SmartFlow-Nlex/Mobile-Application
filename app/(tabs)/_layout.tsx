@@ -2,10 +2,12 @@ import React from 'react';
 import { Tabs } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
+import { useAlerts } from '../../frontend/alerts';
 import { useTheme } from '../../frontend/theme';
 
 export default function TabLayout(): React.ReactElement {
 	const { colors } = useTheme();
+	const { unreadCount } = useAlerts();
 
 	return (
 		<>
@@ -94,6 +96,24 @@ export default function TabLayout(): React.ReactElement {
 						tabBarIcon: ({ color, size }) => (
 							<Ionicons name="notifications-outline" size={20} color={color} />
 						),
+						/*
+						 * Unread count on the bell, so the tab itself says there is
+						 * something to read. Capped at "9+" because the badge sits on a
+						 * 20px icon and a three-digit number would overrun the tab.
+						 * `undefined` rather than 0 removes the badge entirely - a
+						 * badge reading "0" is worse than none.
+						 */
+						tabBarBadge:
+							unreadCount > 0 ? (unreadCount > 9 ? '9+' : unreadCount) : undefined,
+						tabBarBadgeStyle: {
+							backgroundColor: colors.danger,
+							color: '#FFFFFF',
+							fontSize: 10,
+							fontWeight: '700',
+							minWidth: 16,
+							height: 16,
+							lineHeight: 13,
+						},
 					}}
 				/>
 			</Tabs>
