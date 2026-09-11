@@ -53,6 +53,14 @@ const alertFeatures = [
   'Incident clusters',
 ] as const;
 
+/**
+ * Above this many maintenance notices the group starts collapsed, so a backlog
+ * of scheduled works never pushes the unread alerts off the first screen.
+ * Below it everything stays visible - collapsing a short list would hide
+ * notices for no benefit.
+ */
+const MAINTENANCE_COLLAPSE_THRESHOLD = 4;
+
 const initialAlerts: AlertItem[] = [
   {
     id: 'high-traffic-bocaue',
@@ -122,9 +130,11 @@ export default function AlertsScreen(): React.ReactElement {
   const styles = useThemedStyles(makeStyles);
   const [notificationsEnabled, setNotificationsEnabled] = useState<boolean>(false);
   const [alerts, setAlerts] = useState<AlertItem[]>(initialAlerts);
-  // Open by default: collapsing is the user's choice, and silently hiding an
-  // unread notice on first load would be worse than a slightly longer list.
-  const [maintenanceOpen, setMaintenanceOpen] = useState<boolean>(true);
+  // null until the user taps: the group follows the count rule on its own, and
+  // stops the moment they express a preference. Deriving it rather than seeding
+  // useState also means the rule still applies once these alerts come from the
+  // API, where the first render has an empty list.
+  const [maintenanceToggled, setMaintenanceToggled] = useState<boolean | null>(null);
 
   const maintenanceAlerts = useMemo(
     () => alerts.filter((item) => item.category === 'maintenance'),
@@ -150,6 +160,9 @@ export default function AlertsScreen(): React.ReactElement {
   // "Mark all as read" means all of them, so it stays available while anything
   // is unread - including a maintenance notice hidden inside a collapsed group.
   const totalUnread = unreadCount + maintenanceUnread;
+
+  const maintenanceOpen =
+    maintenanceToggled ?? maintenanceAlerts.length < MAINTENANCE_COLLAPSE_THRESHOLD;
 
   const handleMarkAllAsRead = (): void => {
     setAlerts((current) => current.map((item) => ({ ...item, unread: false })));
@@ -286,20 +299,13 @@ export default function AlertsScreen(): React.ReactElement {
                   accessibilityLabel={`Maintenance, ${maintenanceAlerts.length} notice${
                     maintenanceAlerts.length === 1 ? '' : 's'
                   }${maintenanceUnread > 0 ? `, ${maintenanceUnread} unread` : ''}`}
-                  onPress={() => setMaintenanceOpen((open) => !open)}
+                  onPress={() => setMaintenanceToggled(!maintenanceOpen)}
                   style={({ pressed }) => [
                     styles.maintenanceHeader,
-                    pressed && styles.alertCardPressed,
+                    pressed && styles.maintenanceHeaderPressed,
                   ]}
                 >
                   <View style={styles.maintenanceHeaderLeft}>
-                    <View style={styles.maintenanceIconWrap}>
-                      <Ionicons
-                        name="construct-outline"
-                        size={18}
-                        color={colors.statusHighSolid}
-                      />
-                    </View>
                     <Text style={styles.maintenanceTitle}>Maintenance</Text>
                     <View style={styles.maintenanceCountPill}>
                       <Text style={styles.maintenanceCountText}>
@@ -312,7 +318,7 @@ export default function AlertsScreen(): React.ReactElement {
 
                   <Ionicons
                     name={maintenanceOpen ? 'chevron-up' : 'chevron-down'}
-                    size={18}
+                    size={22}
                     color={colors.textSecondary}
                   />
                 </Pressable>
@@ -478,22 +484,17 @@ const makeStyles = (c: ThemePalette) =>
   maintenanceSection: {
     marginBottom: 20,
   },
+  // Deliberately a plain heading, not a card: it is the sibling of the
+  // "N unread alerts" heading below and should carry the same weight.
   maintenanceHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 12,
-    backgroundColor: c.surface,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: c.border,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    shadowColor: c.cardShadow,
-    shadowOpacity: 0.04,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 2,
+    marginBottom: 14,
+  },
+  maintenanceHeaderPressed: {
+    opacity: 0.6,
   },
   maintenanceHeaderLeft: {
     flexDirection: 'row',
@@ -501,37 +502,28 @@ const makeStyles = (c: ThemePalette) =>
     gap: 10,
     flex: 1,
   },
-  maintenanceIconWrap: {
-    width: 30,
-    height: 30,
-    borderRadius: 9,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: c.statusHighBg,
-  },
   maintenanceTitle: {
     color: c.text,
-    fontSize: Typography.fontSize.base,
+    fontSize: Typography.fontSize.xl,
     fontWeight: Typography.fontWeight.bold,
   },
   maintenanceCountPill: {
-    minWidth: 22,
+    minWidth: 24,
     alignItems: 'center',
     borderRadius: 999,
-    paddingHorizontal: 7,
+    paddingHorizontal: 8,
     paddingVertical: 2,
-    backgroundColor: c.surfaceMuted,
+    backgroundColor: c.surface,
     borderWidth: 1,
     borderColor: c.border,
   },
   maintenanceCountText: {
     color: c.textSecondary,
-    fontSize: Typography.fontSize.xs,
+    fontSize: Typography.fontSize.sm,
     fontWeight: Typography.fontWeight.bold,
   },
   maintenanceList: {
     gap: 12,
-    marginTop: 12,
   },
   unreadHeader: {
     flexDirection: 'row',
