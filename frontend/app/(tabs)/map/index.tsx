@@ -1,9 +1,10 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   Image,
+  PanResponder,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -38,6 +39,71 @@ export default function MapScreen(): React.ReactElement {
   const [selectedStep, setSelectedStep] = useState<ForecastStep>('Now');
 
   const selectedIndex = forecastSteps.indexOf(selectedStep);
+  const lastIndex = forecastSteps.length - 1;
+
+  /**
+   * Drag support for the forecast track.
+   *
+   * Built on PanResponder rather than a slider package: this has to work in
+   * Expo Go without adding a native module, and on react-native-web for the
+   * browser build.
+   *
+   * Movement is derived from the gesture's `dx` against the index the drag
+   * started on, not from the touch's absolute position. `locationX` is
+   * measured against whatever element is under the finger, which on web stops
+   * being the track as soon as the pointer strays outside it - so a drag would
+   * jump erratically near the ends.
+   */
+  const trackWidthRef = useRef<number>(0);
+  const dragStartIndexRef = useRef<number>(0);
+  const selectedIndexRef = useRef<number>(selectedIndex);
+  selectedIndexRef.current = selectedIndex;
+
+  const setIndex = useCallback((index: number): void => {
+    const clamped = Math.min(Math.max(index, 0), forecastSteps.length - 1);
+    const next = forecastSteps[clamped];
+    if (next !== undefined) {
+      setSelectedStep(next);
+    }
+  }, []);
+
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponder: () => true,
+        // Claim the gesture before the enclosing ScrollView can treat a
+        // sideways drag as a scroll.
+        onMoveShouldSetPanResponderCapture: (_event, gesture) =>
+          Math.abs(gesture.dx) > 2,
+        onPanResponderGrant: (event) => {
+          const width = trackWidthRef.current;
+          const x = event.nativeEvent.locationX;
+          // Tap anywhere on the track to jump there; the drag then continues
+          // from wherever it landed.
+          if (width > 0 && Number.isFinite(x)) {
+            const tapped = Math.round((x / width) * lastIndex);
+            dragStartIndexRef.current = Math.min(Math.max(tapped, 0), lastIndex);
+            setIndex(tapped);
+          } else {
+            dragStartIndexRef.current = selectedIndexRef.current;
+          }
+        },
+        onPanResponderMove: (_event, gesture) => {
+          const width = trackWidthRef.current;
+          if (width <= 0) {
+            return;
+          }
+          const stepWidth = width / lastIndex;
+          const next = dragStartIndexRef.current + Math.round(gesture.dx / stepWidth);
+          if (next !== selectedIndexRef.current) {
+            setIndex(next);
+          }
+        },
+        onPanResponderTerminationRequest: () => false,
+      }),
+    [lastIndex, setIndex],
+  );
 
   // Coarse ticker: minute-level precision is plenty for a 6h/12h/24h/48h horizon.
   const now = useNow(30000);
@@ -94,12 +160,38 @@ export default function MapScreen(): React.ReactElement {
               </Pressable>
             </View>
 
-            <View style={styles.sliderTrack}>
+            {/* The whole strip is the grab area - a 14px dot is too small to
+                drag comfortably, so the padding gives it a proper touch target. */}
+            <View
+              accessibilityRole="adjustable"
+              accessibilityLabel="Forecast time"
+              accessibilityValue={{
+                min: 0,
+                max: lastIndex,
+                now: selectedIndex,
+                text: `${timestampLabel}, ${horizonLabel}`,
+              }}
+              accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }]}
+              onAccessibilityAction={(event) => {
+                if (event.nativeEvent.actionName === 'increment') {
+                  setIndex(selectedIndex + 1);
+                } else if (event.nativeEvent.actionName === 'decrement') {
+                  setIndex(selectedIndex - 1);
+                }
+              }}
+              onLayout={(event) => {
+                trackWidthRef.current = event.nativeEvent.layout.width;
+              }}
+              style={styles.sliderTrack}
+              {...panResponder.panHandlers}
+            >
+              <View style={styles.sliderRail} />
               <View style={[styles.sliderFill, { width: `${selectedIndex * 25}%` }]} />
+
               {forecastSteps.map((step, index) => (
-                <Pressable
+                <View
                   key={step}
-                  onPress={() => setSelectedStep(step)}
+                  pointerEvents="none"
                   style={[
                     styles.sliderDot,
                     {
@@ -107,10 +199,15 @@ export default function MapScreen(): React.ReactElement {
                       backgroundColor:
                         index <= selectedIndex ? colors.accent : colors.border,
                     },
-                    index === selectedIndex && styles.sliderDotActive,
                   ]}
                 />
               ))}
+
+              {/* Drawn last so it sits above the ticks it overlaps. */}
+              <View
+                pointerEvents="none"
+                style={[styles.sliderThumb, { left: `${selectedIndex * 25}%` }]}
+              />
             </View>
 
             <View style={styles.timeChipRow}>
@@ -270,9 +367,19 @@ const makeStyles = (c: ThemePalette) =>
     justifyContent: 'center',
   },
   sliderTrack: {
-    height: 24,
+    height: 36,
     justifyContent: 'center',
-    marginBottom: 18,
+    marginBottom: 14,
+  },
+  // The unfilled part of the track. Without it the control read as five loose
+  // dots rather than something with a range to drag along.
+  sliderRail: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    height: 4,
+    backgroundColor: c.hairline,
+    borderRadius: 999,
   },
   sliderFill: {
     position: 'absolute',
@@ -283,17 +390,25 @@ const makeStyles = (c: ThemePalette) =>
   },
   sliderDot: {
     position: 'absolute',
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    marginLeft: -7,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    marginLeft: -5,
   },
-  sliderDotActive: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    marginLeft: -9,
-    top: 3,
+  sliderThumb: {
+    position: 'absolute',
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    marginLeft: -11,
+    backgroundColor: c.surface,
+    borderWidth: 3,
+    borderColor: c.primary,
+    shadowColor: c.cardShadow,
+    shadowOpacity: 0.18,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 3,
   },
   timeChipRow: {
     flexDirection: 'row',
