@@ -370,8 +370,20 @@ router.post('/chat', async (req: Request, res: Response): Promise<void> => {
           return;
         }
 
+        /*
+         * Which company actually served the request. OpenRouter returns this
+         * as a `provider` field outside the OpenAI schema, hence the cast.
+         *
+         * Worth logging rather than inferring: with ZDR on, the provider IS
+         * the zero-retention guarantee. "Alibaba" appearing here would mean
+         * the guarantee is not holding, and that is not something to find out
+         * by reasoning about which providers exist.
+         */
+        const servedBy =
+          (completion as unknown as { provider?: string }).provider ?? 'unknown';
         console.log(
-          `[assistant] answered using [${toolsUsed.join(', ') || 'no tools'}] via ${completion.model}`,
+          `[assistant] answered using [${toolsUsed.join(', ') || 'no tools'}] ` +
+            `via ${completion.model} on ${servedBy} (zdr=${LLM_ZDR})`,
         );
         res.json({
           success: true,
