@@ -81,6 +81,18 @@ const initialAlerts: AlertItem[] = [
     category: 'maintenance',
   },
   {
+    id: 'maintenance-sta-rita-joints',
+    title: 'Bridge Joint Repairs at Sta. Rita',
+    message:
+      'Right lane closed southbound near Sta. Rita Guiguinto this weekend for bridge joint replacement.',
+    timeAgo: '5h ago',
+    priority: 'medium priority',
+    icon: 'construct-outline',
+    tone: 'warning',
+    unread: false,
+    category: 'maintenance',
+  },
+  {
     id: 'maintenance-marilao-drainage',
     title: 'Drainage Works at Marilao',
     message:
