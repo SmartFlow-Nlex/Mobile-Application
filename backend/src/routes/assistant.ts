@@ -282,17 +282,32 @@ router.post('/chat', async (req: Request, res: Response): Promise<void> => {
         // rejects the request up front unless the account can afford that worst
         // case - a 402 even though the real answer is ~80 tokens. It also caps
         // what a runaway response can cost.
-        max_tokens: 600,
+        max_tokens: 800,
       };
 
-      // `provider` is an OpenRouter extension rather than part of the OpenAI
-      // schema, so it is attached by cast - and only when switched on, since a
-      // provider that does not know the field could reject the request.
-      const completion = await getClient().chat.completions.create(
-        LLM_ZDR
-          ? ({ ...params, provider: { zdr: true } } as ChatCompletionCreateParamsNonStreaming)
-          : params,
-      );
+      /*
+       * `provider` and `reasoning` are OpenRouter extensions rather than part
+       * of the OpenAI schema, so they are attached by cast.
+       *
+       * reasoning.enabled=false matters: Qwen3 is a hybrid thinking model, and
+       * its internal reasoning is spent from the SAME budget as max_tokens. A
+       * long think leaves nothing for the visible answer, so `content` comes
+       * back empty and the user sees a blank bubble. We have no use for the
+       * reasoning either - tool choice is already pinned by explicit rules in
+       * the prompt - so it is pure cost and latency.
+       *
+       * `provider` is sent only when ZDR is on, since a provider that does not
+       * know the field could reject the whole request.
+       */
+      const extras: Record<string, unknown> = { reasoning: { enabled: false } };
+      if (LLM_ZDR) {
+        extras.provider = { zdr: true };
+      }
+
+      const completion = await getClient().chat.completions.create({
+        ...params,
+        ...extras,
+      } as ChatCompletionCreateParamsNonStreaming);
 
       const choice = completion.choices[0]?.message;
       if (choice === undefined) {
@@ -301,13 +316,32 @@ router.post('/chat', async (req: Request, res: Response): Promise<void> => {
 
       const calls = choice.tool_calls ?? [];
       if (calls.length === 0) {
+        const reply = toPlainText(choice.content ?? '');
+
+        /*
+         * An empty reply renders as a blank chat bubble, which reads as a
+         * broken app rather than a failure. It happens when the model spends
+         * its whole budget before writing anything - finish_reason 'length'.
+         * Say something useful instead, and log why so it is diagnosable
+         * without reproducing it against a paid API.
+         */
+        if (reply.length === 0) {
+          const why = completion.choices[0]?.finish_reason ?? 'unknown';
+          console.error(`[assistant] empty reply from ${completion.model} (finish_reason: ${why})`);
+          // Reported as a failure rather than answered with words of our own.
+          // Every chat bubble in the app is the model speaking; when it says
+          // nothing, the app must show an error, not something we wrote.
+          res.status(502).json({
+            success: false,
+            error: 'Empty reply',
+            message: 'The assistant did not return an answer. Please try again.',
+          });
+          return;
+        }
+
         res.json({
           success: true,
-          data: {
-            reply: toPlainText(choice.content ?? ''),
-            toolsUsed,
-            model: completion.model,
-          },
+          data: { reply, toolsUsed, model: completion.model },
         });
         return;
       }
@@ -328,15 +362,14 @@ router.post('/chat', async (req: Request, res: Response): Promise<void> => {
       }
     }
 
-    // Ran out of rounds while still asking for tools.
-    res.json({
-      success: true,
-      data: {
-        reply:
-          'Sorry, I could not work that out. Try asking about a specific NLEX exit, like "Is Bocaue congested?"',
-        toolsUsed,
-        model: QWEN_MODEL,
-      },
+    // Ran out of rounds while still asking for tools, so the model never
+    // produced an answer. Surfaced as a failure for the same reason as above:
+    // we do not put words in the assistant's mouth.
+    console.error(`[assistant] tool loop hit ${MAX_TOOL_ROUNDS} rounds without an answer`);
+    res.status(502).json({
+      success: false,
+      error: 'No answer',
+      message: 'The assistant could not work that out. Please try rephrasing.',
     });
   } catch (caught) {
     const detail = caught instanceof Error ? caught.message : 'Unknown error';

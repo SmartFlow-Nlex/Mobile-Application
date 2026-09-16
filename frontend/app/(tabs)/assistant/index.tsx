@@ -26,12 +26,15 @@ const quickQuestions = [
   'Is Balintawak clear southbound?',
 ] as const;
 
-const GREETING: ChatMessage = {
-  id: 'greeting',
-  role: 'assistant',
-  text: "Hello! I'm your SmartFlow NLEX Assistant. Ask me about traffic, exits or travel times along the NLEX corridor.",
-  at: Date.now(),
-};
+/**
+ * Shown before the first question, as a panel rather than a chat bubble.
+ *
+ * It used to be seeded into the message list as an assistant message, which
+ * made it look like the model had spoken when it had not. Every bubble in this
+ * screen is now the model's own words and nothing else.
+ */
+const INTRO_TEXT =
+  "Ask about traffic, exits or travel times along the NLEX corridor.";
 
 function formatTime(at: number): string {
   return new Date(at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
@@ -42,7 +45,7 @@ export default function AssistantScreen(): React.ReactElement {
   const router = useRouter();
   const styles = useThemedStyles(makeStyles);
   const [draft, setDraft] = useState<string>('');
-  const [messages, setMessages] = useState<ChatMessage[]>([GREETING]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isThinking, setIsThinking] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const scrollRef = useRef<ScrollView>(null);
@@ -63,7 +66,7 @@ export default function AssistantScreen(): React.ReactElement {
 
       // History is what came before this question - the new one is sent
       // separately, so including it here would duplicate it.
-      const history = messages.filter((message) => message.id !== 'greeting');
+      const history = messages;
 
       setMessages((current) => [...current, userMessage]);
       setDraft('');
@@ -132,6 +135,13 @@ export default function AssistantScreen(): React.ReactElement {
               </View>
             </View>
           </View>
+
+          {messages.length === 0 ? (
+            <View style={styles.intro}>
+              <Ionicons name="chatbubbles-outline" size={26} color={colors.textSecondary} />
+              <Text style={styles.introText}>{INTRO_TEXT}</Text>
+            </View>
+          ) : null}
 
           {messages.map((message) =>
             message.role === 'assistant' ? (
@@ -327,6 +337,18 @@ const makeStyles = (c: ThemePalette) =>
     color: c.textSecondary,
     fontSize: Typography.fontSize.xs,
     fontWeight: Typography.fontWeight.medium,
+  },
+  intro: {
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 30,
+    paddingVertical: 28,
+  },
+  introText: {
+    color: c.textSecondary,
+    fontSize: Typography.fontSize.base,
+    lineHeight: 22,
+    textAlign: 'center',
   },
   chatRow: {
     flexDirection: 'row',
