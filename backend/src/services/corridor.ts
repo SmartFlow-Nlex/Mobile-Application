@@ -112,15 +112,30 @@ export async function getCorridorStatus(): Promise<CorridorResult> {
  * People say "Bocaue" for "Bocaue Barrier" and "Harbor Link" for "NLEX Harbor
  * Link", so an exact match alone would fail on most natural phrasing.
  */
+/**
+ * Fold the spellings people actually type onto one form.
+ *
+ * "Sta Ines" and "Sta. Ines" are the same place to a driver, and both get
+ * typed. Punctuation and double spaces are dropped so the match does not hinge
+ * on whether someone bothered with the full stop.
+ */
+function normalise(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[.,''`]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 export function findExit(exits: CorridorExit[], query: string): CorridorExit | null {
-  const needle = query.trim().toLowerCase();
+  const needle = normalise(query);
   if (needle.length === 0) {
     return null;
   }
 
   const names = (exit: CorridorExit): string[] => [
-    exit.display_name.toLowerCase(),
-    exit.exit_name.toLowerCase(),
+    normalise(exit.display_name),
+    normalise(exit.exit_name),
   ];
 
   const exact = exits.find((exit) => names(exit).includes(needle));

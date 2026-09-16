@@ -69,11 +69,12 @@ function getClient(): OpenAI {
   return client;
 }
 
-const SYSTEM_PROMPT = `You are the SmartFlow NLEX assistant. You help commuters and drivers on the NLEX expressway in the Philippines.
+const SYSTEM_PROMPT_BASE = `You are the SmartFlow NLEX assistant. You help commuters and drivers on the NLEX expressway in the Philippines.
 
 STRICT RULES:
 1. You ONLY answer questions about the NLEX corridor - traffic conditions, exits, travel times, incidents and route choices along NLEX. For anything else, politely say it is outside what you can help with and offer an NLEX-related suggestion instead.
 2. NEVER state or guess a traffic condition without calling a tool first. You have no knowledge of current NLEX conditions.
+2b. NEVER say a place is not an NLEX exit based on your own knowledge. The authoritative list is given below - check it. If a name is on that list, call get_corridor_status for it. Only if it is genuinely absent from that list may you say you do not recognise it.
 3. If a tool reports data is unavailable, say so plainly. Do not substitute a guess.
 4. Users often write in Taglish (mixed Tagalog and English). Reply in whichever language they used.
 5. Be brief - most users are about to drive. Two or three sentences is usually right.
@@ -86,6 +87,28 @@ CHOOSING A TOOL:
 - Never use get_corridor_overview to answer a question about one specific exit.
 
 GEOGRAPHY: northbound runs from Balintawak (KM 0, Metro Manila) towards Sta. Ines (KM 86, near Clark). Southbound is the reverse. "Papuntang Manila" or "going to Manila" means SOUTHBOUND. "Papuntang Clark/Pampanga" means NORTHBOUND.`;
+
+/**
+ * The exit list goes into the prompt itself, not just into a tool.
+ *
+ * Asked about Dau, the model replied that Dau is not an NLEX exit - it is, at
+ * KM 71 - because it answered from its own knowledge rather than calling a
+ * tool. Whether a place exists on this road is something it should never have
+ * to guess at, so it is stated up front. Conditions still come only from
+ * tools; this is the roster, not the traffic.
+ *
+ * Built per request from the live feed rather than written into the source, so
+ * an exit added upstream appears here without a code change.
+ */
+function buildSystemPrompt(exitNames: string[]): string {
+  if (exitNames.length === 0) {
+    return SYSTEM_PROMPT_BASE;
+  }
+  return `${SYSTEM_PROMPT_BASE}
+
+THE COMPLETE LIST OF NLEX EXITS (authoritative - nothing else is an NLEX exit, and everything here IS one):
+${exitNames.join(', ')}`;
+}
 
 const tools: ChatCompletionTool[] = [
   {
@@ -260,8 +283,16 @@ router.post('/chat', async (req: Request, res: Response): Promise<void> => {
     ? (body.history as ChatCompletionMessageParam[]).slice(-10)
     : [];
 
+  // Reads the cached corridor feed (30s TTL), so this costs nothing per turn.
+  // If the feed is down the prompt falls back to its static form and the tools
+  // report the outage - the assistant still refuses to invent conditions.
+  const corridor = await getCorridorStatus();
+  const exitNames = corridor.available
+    ? corridor.data.exits.map((exit) => exit.display_name)
+    : [];
+
   const messages: ChatCompletionMessageParam[] = [
-    { role: 'system', content: SYSTEM_PROMPT },
+    { role: 'system', content: buildSystemPrompt(exitNames) },
     ...history,
     { role: 'user', content: message },
   ];
@@ -339,6 +370,9 @@ router.post('/chat', async (req: Request, res: Response): Promise<void> => {
           return;
         }
 
+        console.log(
+          `[assistant] answered using [${toolsUsed.join(', ') || 'no tools'}] via ${completion.model}`,
+        );
         res.json({
           success: true,
           data: { reply, toolsUsed, model: completion.model },
