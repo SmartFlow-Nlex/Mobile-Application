@@ -34,8 +34,11 @@ services:
         value: "*"
       - key: QWEN_BASE_URL
         value: https://openrouter.ai/api/v1
+      # Qwen3 14B, not 3.8-Flash: Flash is served only by Alibaba, which has no
+      # zero-retention policy, so LLM_ZDR=true leaves OpenRouter with nothing to
+      # route to and every request 404s. 14B also has DeepInfra and NextBit.
       - key: QWEN_MODEL
-        value: qwen/qwen3.8-flash
+        value: qwen/qwen3-14b
       - key: LLM_ZDR
         value: "true"
       # sync: false keeps these OUT of the repo - Render prompts for them in the

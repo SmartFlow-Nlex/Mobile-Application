@@ -78,6 +78,7 @@ STRICT RULES:
 4. Users often write in Taglish (mixed Tagalog and English). Reply in whichever language they used.
 5. Be brief - most users are about to drive. Two or three sentences is usually right.
 6. Answer ONLY what was asked. Do not volunteer conditions at other exits unless the user asked about them.
+7. Write plain text only. No markdown - no **bold**, no *italics*, no # headings. The app shows your reply in a chat bubble that renders none of it, so the symbols appear literally.
 
 CHOOSING A TOOL:
 - The user named a place (Bocaue, Balintawak, Marilao...) -> get_corridor_status for THAT exit. One call.
@@ -201,6 +202,33 @@ async function runTool(name: string, rawArgs: string): Promise<unknown> {
   return { error: `Unknown tool "${name}".` };
 }
 
+/**
+ * Strip markdown the chat bubble cannot render.
+ *
+ * The system prompt asks for plain text, but that is a request rather than a
+ * guarantee - Qwen3 14B reaches for **bold** when listing congested exits. The
+ * bubble is a plain Text node, so the asterisks would show up literally.
+ *
+ * Deliberately narrow: emphasis markers and list bullets only. It does not try
+ * to be a general markdown parser, because mangling a reply is worse than
+ * leaving an odd character in it.
+ */
+export function toPlainText(reply: string): string {
+  return reply
+    // **bold** and __bold__
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/__([^_]+)__/g, '$1')
+    // *italic* - single markers, not spanning lines
+    .replace(/\*([^*\n]+)\*/g, '$1')
+    // "- item" / "* item" at the start of a line becomes a real bullet
+    .replace(/^[ \t]*[-*][ \t]+/gm, '\u2022 ')
+    // "# Heading"
+    .replace(/^#{1,6}[ \t]+/gm, '')
+    // Collapse the blank-line gaps markdown leaves behind
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 interface ChatRequestBody {
   message?: unknown;
   history?: unknown;
@@ -276,7 +304,7 @@ router.post('/chat', async (req: Request, res: Response): Promise<void> => {
         res.json({
           success: true,
           data: {
-            reply: choice.content ?? '',
+            reply: toPlainText(choice.content ?? ''),
             toolsUsed,
             model: completion.model,
           },
