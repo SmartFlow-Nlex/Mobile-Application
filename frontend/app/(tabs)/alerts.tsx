@@ -26,12 +26,22 @@ function alertTone(tone: AlertTone, c: ThemePalette): { solid: string; backgroun
 }
 
 /**
- * Above this many maintenance notices the group starts collapsed, so a backlog
- * of scheduled works never pushes the unread alerts off the first screen.
- * Below it everything stays visible - collapsing a short list would hide
- * notices for no benefit.
+ * At this many maintenance notices the group gets its own scroll area instead
+ * of growing down the page. A backlog then scrolls within its own card and the
+ * unread alerts stay where they are, without the user having to collapse
+ * anything. Below it the list is short enough to show whole.
  */
-const MAINTENANCE_COLLAPSE_THRESHOLD = 4;
+const MAINTENANCE_SCROLL_THRESHOLD = 4;
+
+/**
+ * Height of that scroll area.
+ *
+ * Chosen against the layout rather than picked for looks: at 340 the unread
+ * heading landed at y=785 on a 844pt screen, which the tab bar covers. 280
+ * brings it clear of that, and still shows most of two cards plus the top of
+ * the next - enough to read as scrollable rather than as a cut-off list.
+ */
+const MAINTENANCE_SCROLL_HEIGHT = 280;
 
 const alertFeatures = [
   'Predictive congestion alerts',
@@ -79,8 +89,11 @@ export default function AlertsScreen(): React.ReactElement {
   // is unread - including a maintenance notice hidden inside a collapsed group.
   const totalUnread = unreadCount + maintenanceUnread;
 
-  const maintenanceOpen =
-    maintenanceToggled ?? maintenanceAlerts.length < MAINTENANCE_COLLAPSE_THRESHOLD;
+  // Always open unless the user collapses it themselves. A long list no longer
+  // needs collapsing to stay out of the way - it scrolls inside its own area.
+  const maintenanceOpen = maintenanceToggled ?? true;
+
+  const maintenanceScrolls = maintenanceAlerts.length >= MAINTENANCE_SCROLL_THRESHOLD;
 
   const handleMarkAllAsRead = (): void => {
     markAllAsRead();
@@ -240,9 +253,22 @@ export default function AlertsScreen(): React.ReactElement {
                 </Pressable>
 
                 {maintenanceOpen ? (
-                  <View style={styles.maintenanceList}>
-                    {maintenanceAlerts.map(renderAlert)}
-                  </View>
+                  maintenanceScrolls ? (
+                    /* nestedScrollEnabled is needed on Android for a vertical
+                       list inside the page's own vertical ScrollView. */
+                    <ScrollView
+                      nestedScrollEnabled
+                      contentContainerStyle={styles.maintenanceList}
+                      showsVerticalScrollIndicator
+                      style={styles.maintenanceScroller}
+                    >
+                      {maintenanceAlerts.map(renderAlert)}
+                    </ScrollView>
+                  ) : (
+                    <View style={styles.maintenanceList}>
+                      {maintenanceAlerts.map(renderAlert)}
+                    </View>
+                  )
                 ) : null}
               </View>
             ) : null}
@@ -463,6 +489,9 @@ const makeStyles = (c: ThemePalette) =>
     color: c.textSecondary,
     fontSize: Typography.fontSize.sm,
     fontWeight: Typography.fontWeight.bold,
+  },
+  maintenanceScroller: {
+    maxHeight: MAINTENANCE_SCROLL_HEIGHT,
   },
   maintenanceList: {
     gap: 12,
