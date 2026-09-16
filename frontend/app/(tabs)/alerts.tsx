@@ -34,14 +34,14 @@ function alertTone(tone: AlertTone, c: ThemePalette): { solid: string; backgroun
 const MAINTENANCE_SCROLL_THRESHOLD = 4;
 
 /**
- * Height of that scroll area.
+ * Height of that scroll area: three cards, then scroll for the rest.
  *
- * Chosen against the layout rather than picked for looks: at 340 the unread
- * heading landed at y=785 on a 844pt screen, which the tab bar covers. 280
- * brings it clear of that, and still shows most of two cards plus the top of
- * the next - enough to read as scrollable rather than as a cut-off list.
+ * Derived from a measurement rather than guessed - a card renders at 162pt and
+ * the gap between them is 12, so three cards and two gaps is 510. Cards vary a
+ * little with message length, so the third may sit slightly proud or shy of
+ * the edge; that is a useful hint that there is more below.
  */
-const MAINTENANCE_SCROLL_HEIGHT = 280;
+const MAINTENANCE_SCROLL_HEIGHT = 510;
 
 const alertFeatures = [
   'Predictive congestion alerts',
@@ -56,13 +56,9 @@ export default function AlertsScreen(): React.ReactElement {
   const styles = useThemedStyles(makeStyles);
   const { alerts, markAsRead, markAllAsRead } = useAlerts();
   const [notificationsEnabled, setNotificationsEnabled] = useState<boolean>(false);
-  // Independent of maintenance: a user may want either group out of the way.
+  // Only the unread group collapses now. Maintenance scrolls in place instead,
+  // so a collapse control there would be a second way to do the same job.
   const [unreadCollapsed, setUnreadCollapsed] = useState<boolean>(false);
-  // null until the user taps: the group follows the count rule on its own, and
-  // stops the moment they express a preference. Deriving it rather than seeding
-  // useState also means the rule still applies once these alerts come from the
-  // API, where the first render has an empty list.
-  const [maintenanceToggled, setMaintenanceToggled] = useState<boolean | null>(null);
 
   const maintenanceAlerts = useMemo(
     () => alerts.filter((item) => item.category === 'maintenance'),
@@ -88,10 +84,6 @@ export default function AlertsScreen(): React.ReactElement {
   // "Mark all as read" means all of them, so it stays available while anything
   // is unread - including a maintenance notice hidden inside a collapsed group.
   const totalUnread = unreadCount + maintenanceUnread;
-
-  // Always open unless the user collapses it themselves. A long list no longer
-  // needs collapsing to stay out of the way - it scrolls inside its own area.
-  const maintenanceOpen = maintenanceToggled ?? true;
 
   const maintenanceScrolls = maintenanceAlerts.length >= MAINTENANCE_SCROLL_THRESHOLD;
 
@@ -222,17 +214,14 @@ export default function AlertsScreen(): React.ReactElement {
 
             {maintenanceAlerts.length > 0 ? (
               <View style={styles.maintenanceSection}>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityState={{ expanded: maintenanceOpen }}
+                {/* A plain heading now, not a button: the list scrolls in
+                    place, so there is nothing to expand or collapse. */}
+                <View
+                  accessibilityRole="header"
                   accessibilityLabel={`Maintenance, ${maintenanceAlerts.length} notice${
                     maintenanceAlerts.length === 1 ? '' : 's'
                   }${maintenanceUnread > 0 ? `, ${maintenanceUnread} unread` : ''}`}
-                  onPress={() => setMaintenanceToggled(!maintenanceOpen)}
-                  style={({ pressed }) => [
-                    styles.maintenanceHeader,
-                    pressed && styles.maintenanceHeaderPressed,
-                  ]}
+                  style={styles.maintenanceHeader}
                 >
                   <View style={styles.maintenanceHeaderLeft}>
                     <Text style={styles.maintenanceTitle}>Maintenance</Text>
@@ -241,35 +230,26 @@ export default function AlertsScreen(): React.ReactElement {
                         {maintenanceAlerts.length}
                       </Text>
                     </View>
-                    {/* Survives collapsing, so a new notice is never hidden. */}
                     {maintenanceUnread > 0 ? <View style={styles.unreadDot} /> : null}
-                    {/* Last, so the row ends on its control rather than a dot. */}
-                    <Ionicons
-                      name={maintenanceOpen ? 'chevron-up' : 'chevron-down'}
-                      size={20}
-                      color={colors.textSecondary}
-                    />
                   </View>
-                </Pressable>
+                </View>
 
-                {maintenanceOpen ? (
-                  maintenanceScrolls ? (
-                    /* nestedScrollEnabled is needed on Android for a vertical
-                       list inside the page's own vertical ScrollView. */
-                    <ScrollView
-                      nestedScrollEnabled
-                      contentContainerStyle={styles.maintenanceList}
-                      showsVerticalScrollIndicator
-                      style={styles.maintenanceScroller}
-                    >
-                      {maintenanceAlerts.map(renderAlert)}
-                    </ScrollView>
-                  ) : (
-                    <View style={styles.maintenanceList}>
-                      {maintenanceAlerts.map(renderAlert)}
-                    </View>
-                  )
-                ) : null}
+                {maintenanceScrolls ? (
+                  /* nestedScrollEnabled is needed on Android for a vertical
+                     list inside the page's own vertical ScrollView. */
+                  <ScrollView
+                    nestedScrollEnabled
+                    contentContainerStyle={styles.maintenanceList}
+                    showsVerticalScrollIndicator
+                    style={styles.maintenanceScroller}
+                  >
+                    {maintenanceAlerts.map(renderAlert)}
+                  </ScrollView>
+                ) : (
+                  <View style={styles.maintenanceList}>
+                    {maintenanceAlerts.map(renderAlert)}
+                  </View>
+                )}
               </View>
             ) : null}
 
