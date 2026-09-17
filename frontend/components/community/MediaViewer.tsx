@@ -96,7 +96,7 @@ const MediaViewer: React.FC<MediaViewerProps> = ({ media, startIndex, visible, o
         <Pressable accessibilityLabel="Close image" onPress={onClose} style={StyleSheet.absoluteFill} />
 
         {item.type === 'image' ? (
-          <View pointerEvents="box-none" style={styles.stage}>
+          <View style={styles.stage}>
             {isLoading && !failed ? (
               <ActivityIndicator color="#FFFFFF" size="large" style={styles.spinner} />
             ) : null}
@@ -118,7 +118,7 @@ const MediaViewer: React.FC<MediaViewerProps> = ({ media, startIndex, visible, o
             ) : null}
           </View>
         ) : (
-          <View pointerEvents="box-none" style={styles.stage}>
+          <View style={styles.stage}>
             <VideoStage height={height} uri={item.uri} width={width} />
           </View>
         )}
@@ -175,6 +175,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   stage: {
+    // In style rather than as a prop: the `pointerEvents` prop is deprecated
+    // in RN 0.86. Both call sites passed box-none, so it belongs here.
+    pointerEvents: 'box-none',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 12,

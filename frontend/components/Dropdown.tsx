@@ -1,7 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import {
   FlatList,
-  Modal,
   Pressable,
   StyleSheet,
   Text,
@@ -9,6 +8,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme, useThemedStyles } from '../theme';
+import SheetModal from './SheetModal';
 import type { ThemePalette } from '../theme';
 import { Typography } from '../constants/typography';
 
@@ -107,15 +107,10 @@ const Dropdown: React.FC<DropdownProps> = ({
         />
       </Pressable>
 
-      <Modal
-        visible={open}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setOpen(false)}
-      >
-        <Pressable style={styles.backdrop} onPress={() => setOpen(false)}>
-          {/* Stop taps inside the sheet from dismissing it. */}
-          <Pressable style={styles.sheet} onPress={(event) => event.stopPropagation()}>
+      <SheetModal visible={open} onClose={() => setOpen(false)}>
+        {/* A plain View: SheetModal's scrim sits behind the sheet rather than
+            wrapping it, so there is no parent press to stop. */}
+        <View style={styles.sheet}>
             <View style={styles.grabber} />
 
             <View style={styles.sheetHeader}>
@@ -182,9 +177,8 @@ const Dropdown: React.FC<DropdownProps> = ({
                 }}
               />
             )}
-          </Pressable>
-        </Pressable>
-      </Modal>
+        </View>
+      </SheetModal>
     </View>
   );
 };
@@ -240,11 +234,6 @@ const makeStyles = (c: ThemePalette) =>
     fontSize: Typography.fontSize.base,
     fontWeight: '500',
     flexShrink: 1,
-  },
-  backdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(15,23,42,0.45)',
-    justifyContent: 'flex-end',
   },
   sheet: {
     backgroundColor: c.surface,

@@ -196,3 +196,25 @@ export interface ApiError {
   message: string;
   details?: Record<string, unknown>;
 }
+
+// ============================================================================
+// ASSISTANT TOOLS
+// ============================================================================
+
+/**
+ * The data tools the traffic assistant is allowed to call.
+ *
+ * These names cross the wire: the backend registers them with the model and
+ * reports which ones ran, and the chat UI turns each one into a label saying
+ * where the answer came from. They live here because that is a contract
+ * between the two - held separately, a tool added on the server shows up in
+ * the app as a raw function name like "get corridor overview", which is
+ * exactly what happened before this list existed.
+ */
+export const ASSISTANT_TOOLS = [
+  'get_corridor_status',
+  'get_corridor_overview',
+  'list_exits',
+] as const;
+
+export type AssistantToolName = (typeof ASSISTANT_TOOLS)[number];

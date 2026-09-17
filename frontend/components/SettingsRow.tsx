@@ -32,6 +32,12 @@ const SettingsRow: React.FC<SettingsRowProps> = ({
 
   return (
     <Pressable
+      // A tappable row announces as one button reading "Theme, Dark" rather
+      // than two unrelated labels. Toggle rows deliberately stay role-less:
+      // the Switch is the control, and claiming the row is a button would
+      // hide it behind a wrapper that does nothing.
+      accessibilityRole={onPress ? 'button' : 'none'}
+      accessibilityLabel={onPress && value ? `${label}, ${value}` : undefined}
       disabled={!onPress && !toggle}
       onPress={onPress}
       style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
@@ -49,8 +55,8 @@ const SettingsRow: React.FC<SettingsRowProps> = ({
           <Switch
             onValueChange={onToggle}
             value={toggleValue}
-            trackColor={{ false: colors.border, true: '#93C5FD' }}
-            thumbColor={toggleValue ? colors.primary : colors.surface}
+            trackColor={{ false: colors.switchTrackOff, true: colors.switchTrackOn }}
+            thumbColor={toggleValue ? colors.accent : colors.switchThumb}
           />
         ) : onPress ? (
           <Ionicons name="chevron-forward" size={18} color={colors.textTertiary} />

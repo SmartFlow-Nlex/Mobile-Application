@@ -1,5 +1,5 @@
-import React, { useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, LayoutChangeEvent, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import React, { useMemo, useState } from 'react';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme, useThemedStyles } from '../../theme';
 import type { ThemePalette } from '../../theme';
@@ -8,12 +8,11 @@ import { CongestionLevel } from '../../lib/trafficModel';
 import { CorridorDirectionStatus, CorridorExit, CorridorStatusValue } from '../../lib/corridorApi';
 import { useCorridorStatus } from '../../hooks/useCorridorStatus';
 import { toneFor } from '../dashboard/severity';
-import Dropdown, { DropdownOption } from '../Dropdown';
-
-/** How tall the independently-scrolling list gets before it clips. */
-const LIST_MAX_HEIGHT = 460;
-/** NB lane (30) + KM marker (46) + SB lane (30) - kept in sync with those column widths below. */
-const ROAD_GROUP_WIDTH = 106;
+import CorridorRoad, {
+  type DirectionKey,
+  type RoadDirectionReading,
+  type RoadRow,
+} from './CorridorRoad';
 
 /** The server's own vocabulary - never the synthetic model's Low/Moderate/High/Severe. */
 const statusLabel: Record<CorridorStatusValue, string> = {
@@ -40,175 +39,146 @@ function formatFeedAge(ageMinutes: number | null): string {
   return `updated ${rounded} min${rounded === 1 ? '' : 's'} ago`;
 }
 
-interface RoadLaneProps {
-  color: string;
-  /** False draws a bare, undashed grey bar - no ramp means no traffic ever flows here. */
-  active: boolean;
-  /** Rounds the top corners - only the very first segment of the road. */
-  capStart?: boolean;
-  /** Rounds the bottom corners - only the very last segment of the road. */
-  capEnd?: boolean;
+/**
+ * Speed, when the feed actually has one.
+ *
+ * The API returns `speedKmh: null` for most clear exits and a real figure
+ * where a jam is being observed - which is exactly where a number is worth
+ * more than a colour. "Congested" tells you to expect trouble; "2 km/h" tells
+ * you to get off the expressway.
+ */
+function formatSpeed(speedKmh: number | null): string | null {
+  if (speedKmh === null || !Number.isFinite(speedKmh)) {
+    return null;
+  }
+  return `${Math.round(speedKmh)} km/h`;
+}
+
+function readingFor(status: CorridorDirectionStatus): RoadDirectionReading {
+  if (!status.hasRamp) {
+    return { level: null, value: 'no ramp' };
+  }
+  const speed = formatSpeed(status.speedKmh);
+  return {
+    level: statusTone[status.status] ?? 'low',
+    value: speed ?? statusLabel[status.status],
+  };
+}
+
+function detailLineFor(status: CorridorDirectionStatus): string {
+  if (!status.hasRamp) {
+    return 'No ramp at this exit';
+  }
+  const parts = [
+    statusLabel[status.status],
+    formatSpeed(status.speedKmh),
+    status.jamCount > 0 ? `${status.jamCount} jam${status.jamCount === 1 ? '' : 's'}` : null,
+    status.access,
+  ].filter((part) => part !== null && part !== undefined && part !== '');
+  return parts.length === 0 ? 'No reading' : parts.join(' · ');
+}
+
+function rowFor(exit: CorridorExit): RoadRow {
+  return {
+    id: String(exit.exit_id),
+    name: exit.display_name,
+    km: exit.km,
+    NB: readingFor(exit.directions.NB),
+    SB: readingFor(exit.directions.SB),
+    detail: [
+      { label: 'Northbound', value: detailLineFor(exit.directions.NB) },
+      { label: 'Southbound', value: detailLineFor(exit.directions.SB) },
+    ],
+    detailFooter: `${exit.node_type} · ${exit.latitude.toFixed(4)}, ${exit.longitude.toFixed(4)}`,
+  };
+}
+
+// ---------------------------------------------------------------------------
+
+interface ProportionBarProps {
+  clear: number;
+  slow: number;
+  congested: number;
 }
 
 /**
- * One exit's worth of coloured pavement, with dashed lane markings down the
- * centre. Fills its column completely - no margin, no padding around the
- * fill itself - so consecutive segments butt directly against each other and
- * read as one unbroken road rather than a stack of separate pills.
+ * One bar showing how much of the corridor is in each state.
+ *
+ * `flex: n` does the proportioning, so a zero count collapses to nothing
+ * without any width maths.
  */
-const RoadLane: React.FC<RoadLaneProps> = ({ color, active, capStart = false, capEnd = false }) => {
+const ProportionBar: React.FC<ProportionBarProps> = ({ clear, slow, congested }) => {
+  const { colors } = useTheme();
   const styles = useThemedStyles(makeStyles);
+  const total = clear + slow + congested;
+
+  if (total === 0) {
+    return <View style={[styles.proportionBar, { backgroundColor: colors.track }]} />;
+  }
+
   return (
-    <View
-      style={[
-        styles.roadBar,
-        { backgroundColor: color },
-        capStart && styles.roadBarCapStart,
-        capEnd && styles.roadBarCapEnd,
-      ]}
-    >
-      {active ? (
-        <View style={styles.roadDashes}>
-          <View style={styles.roadDash} />
-          <View style={styles.roadDash} />
-          <View style={styles.roadDash} />
-        </View>
+    <View style={styles.proportionBar}>
+      {congested > 0 ? (
+        <View style={{ flex: congested, backgroundColor: toneFor('severe', colors).solid }} />
+      ) : null}
+      {slow > 0 ? (
+        <View style={{ flex: slow, backgroundColor: toneFor('moderate', colors).solid }} />
+      ) : null}
+      {clear > 0 ? (
+        <View style={{ flex: clear, backgroundColor: toneFor('low', colors).solid }} />
       ) : null}
     </View>
   );
 };
 
-interface CountPillProps {
-  label: string;
-  count: number;
-  level: CongestionLevel;
-}
-
-const CountPill: React.FC<CountPillProps> = ({ label, count, level }) => {
-  const { colors } = useTheme();
-  const styles = useThemedStyles(makeStyles);
-  const tone = toneFor(level, colors);
-  return (
-    <View style={[styles.countPill, { backgroundColor: tone.background }]}>
-      <Text style={[styles.countPillValue, { color: tone.text }]}>{count}</Text>
-      <Text style={[styles.countPillLabel, { color: tone.text }]}>{label}</Text>
-    </View>
-  );
-};
-
-/** Resolves a lane's fill colour, defaulting unrecognised server values to the least alarming tier rather than guessing. */
-function laneTone(direction: CorridorDirectionStatus, colors: ThemePalette): { solid: string; background: string; text: string } {
-  const level = statusTone[direction.status] ?? 'low';
-  return toneFor(level, colors);
-}
-
-/**
- * A vertical, two-carriageway corridor diagram driven by the live Waze-derived
- * feed: real road-style bars, one column per direction, coloured by that
- * exit's own reported `status` (never re-derived from `level` - the server
- * has already classified it). Reading top to bottom follows the physical
- * highway from Balintawak (km 0) up to Sta. Ines (km ~76) in `exit_id` order,
- * exactly as the API returns it.
- *
- * The full corridor (20 interchanges) does not fit on screen, so the list
- * scrolls inside its own bounded box (LIST_MAX_HEIGHT) rather than growing
- * the whole tab - a drag inside the card never hijacks the page scroll.
- */
 const LiveCorridorStatus: React.FC = () => {
   const { colors } = useTheme();
   const styles = useThemedStyles(makeStyles);
   const { data, isLoading, error, refresh } = useCorridorStatus();
 
-  const exitOptions: DropdownOption[] = useMemo(() => {
+  const [problemsOnly, setProblemsOnly] = useState<boolean>(false);
+
+  const rows: RoadRow[] = useMemo(() => {
     if (data === null) {
       return [];
     }
-    return data.exits.map((exit) => ({
-      id: String(exit.exit_id),
-      label: exit.display_name,
-      sublabel: `KM ${exit.km.toFixed(1)}`,
-    }));
-  }, [data]);
-
-  const [selectedExitId, setSelectedExitId] = useState<string | null>(null);
-  const scrollRef = useRef<ScrollView>(null);
-  // Each row reports its own on-screen offset as it lays out, since exit
-  // names can wrap to two lines - a fixed row-height guess would drift off
-  // target after the first wrapped row.
-  const rowOffsets = useRef<Record<string, number>>({});
-
-  const handleRowLayout = (id: string) => (event: LayoutChangeEvent): void => {
-    rowOffsets.current[id] = event.nativeEvent.layout.y;
-  };
-
-  const handleJumpToExit = (id: string): void => {
-    setSelectedExitId(id);
-    const y = rowOffsets.current[id];
-    if (y !== undefined) {
-      scrollRef.current?.scrollTo({ y: Math.max(0, y - 8), animated: true });
+    let exits = data.exits;
+    if (problemsOnly) {
+      const keys: DirectionKey[] = ['NB', 'SB'];
+      exits = exits.filter((exit) =>
+        keys.some((key) => {
+          const dir = exit.directions[key];
+          return dir.hasRamp && dir.status !== 'clear';
+        }),
+      );
     }
-  };
+    return exits.map(rowFor);
+  }, [data, problemsOnly]);
 
   // Nothing to show and not still trying: the feed is genuinely unavailable.
   const isOffline = data === null && !isLoading;
+  const feedState: 'live' | 'stale' | 'offline' = isOffline
+    ? 'offline'
+    : data?.feed.stale === true
+      ? 'stale'
+      : 'live';
 
-  const headerBlock = (
-    <View style={styles.header}>
-      <View style={styles.headerIcon}>
-        <Ionicons name="git-network-outline" size={16} color={colors.textInverse} />
-      </View>
-      <View style={styles.headerText}>
-        <Text style={styles.title}>Live Corridor Status</Text>
-        <Text style={styles.subtitle} numberOfLines={1}>
-          {data === null
-            ? isLoading
-              ? 'Connecting to live feed...'
-              : 'Live feed unavailable'
-            : `Both directions - ${formatFeedAge(data.feed.ageMinutes)}`}
-        </Text>
-      </View>
-      {/*
-        Three honest states. Claiming LIVE while the body says the feed is
-        unreachable is worse than saying nothing, so a failed fetch reads
-        OFFLINE rather than staying green.
-      */}
-      <View
-        style={[
-          styles.liveBadge,
-          data?.feed.stale === true && styles.liveBadgeStale,
-          isOffline && styles.liveBadgeOffline,
-        ]}
-      >
-        <View
-          style={[
-            styles.liveDot,
-            data?.feed.stale === true && styles.liveDotStale,
-            isOffline && styles.liveDotOffline,
-          ]}
-        />
-        <Text
-          style={[
-            styles.liveText,
-            data?.feed.stale === true && styles.liveTextStale,
-            isOffline && styles.liveTextOffline,
-          ]}
-        >
-          {isOffline ? 'OFFLINE' : data?.feed.stale === true ? 'STALE' : 'LIVE'}
-        </Text>
-      </View>
-    </View>
-  );
+  const feedTone =
+    feedState === 'live'
+      ? toneFor('low', colors)
+      : feedState === 'stale'
+        ? toneFor('moderate', colors)
+        : {
+            solid: colors.textTertiary,
+            background: colors.surfaceMuted,
+            text: colors.textTertiary,
+          };
 
-  // First load never resolved and nothing to show - a plain loading state,
-  // not an "empty corridor".
   if (data === null && isLoading) {
     return (
-      <View>
-        {headerBlock}
-        <View style={styles.statusBox}>
-          <ActivityIndicator color={colors.accent} />
-          <Text style={styles.statusBoxText}>Loading live corridor status...</Text>
-        </View>
+      <View style={styles.stateCard}>
+        <ActivityIndicator color={colors.accent} />
+        <Text style={styles.stateText}>Connecting to the live corridor feed...</Text>
       </View>
     );
   }
@@ -219,179 +189,138 @@ const LiveCorridorStatus: React.FC = () => {
   if (data === null) {
     const unreachable = error === null || error.kind === 'unreachable';
     return (
-      <View>
-        {headerBlock}
-        <View style={styles.statusBox}>
-          <Ionicons name="cloud-offline-outline" size={22} color={colors.textTertiary} />
-          <Text style={styles.statusBoxTitle}>
-            {unreachable ? "Can't reach the backend" : 'The backend returned an error'}
-          </Text>
-          <Text style={styles.statusBoxText}>
-            {unreachable
-              ? 'Nothing answered at this address. Check that the SmartFlow dashboard server is running and that your phone is on the same Wi-Fi.'
-              : error.message}
-          </Text>
-          {error?.url !== null && error?.url !== undefined ? (
-            <Text style={styles.statusBoxUrl} numberOfLines={2}>
-              {error.url}
-            </Text>
-          ) : null}
-          <Pressable
-            accessibilityRole="button"
-            onPress={refresh}
-            style={({ pressed }) => [styles.retryButton, pressed && styles.retryButtonPressed]}
-          >
-            <Text style={styles.retryButtonText}>Retry</Text>
-          </Pressable>
+      <View style={styles.stateCard}>
+        <View style={styles.stateIcon}>
+          <Ionicons name="cloud-offline-outline" size={24} color={colors.textTertiary} />
         </View>
+        <Text style={styles.stateTitle}>
+          {unreachable ? 'Cannot reach the backend' : 'The backend returned an error'}
+        </Text>
+        <Text style={styles.stateText}>
+          {unreachable
+            ? 'Nothing answered at this address. Check that the SmartFlow dashboard server is running and that your phone is on the same Wi-Fi.'
+            : error.message}
+        </Text>
+        {error?.url !== null && error?.url !== undefined ? (
+          <Text style={styles.stateUrl} numberOfLines={2}>
+            {error.url}
+          </Text>
+        ) : null}
+        <Pressable
+          accessibilityRole="button"
+          onPress={refresh}
+          style={({ pressed }) => [styles.retryButton, pressed && styles.pressedDim]}
+        >
+          <Ionicons name="refresh" size={15} color={colors.textInverse} />
+          <Text style={styles.retryButtonText}>Retry</Text>
+        </Pressable>
       </View>
     );
   }
 
   const { counts, exits, feed } = data;
+  const headline =
+    counts.congested > 0
+      ? `${counts.congested} exit${counts.congested === 1 ? '' : 's'} congested`
+      : counts.slow > 0
+        ? `${counts.slow} exit${counts.slow === 1 ? '' : 's'} slowing`
+        : 'Corridor is running clear';
+  const headlineTone = toneFor(
+    counts.congested > 0 ? 'severe' : counts.slow > 0 ? 'moderate' : 'low',
+    colors,
+  );
 
   return (
-    <View>
-      {headerBlock}
+    <View style={styles.wrap}>
+      <View style={styles.healthCard}>
+        <View style={styles.healthTop}>
+          <View style={styles.healthTitleGroup}>
+            <Text style={styles.eyebrow}>RIGHT NOW</Text>
+            <Text style={[styles.headline, { color: headlineTone.text }]}>{headline}</Text>
+          </View>
+          <View style={[styles.livePill, { backgroundColor: feedTone.background }]}>
+            <View style={[styles.liveDot, { backgroundColor: feedTone.solid }]} />
+            <Text style={[styles.liveText, { color: feedTone.text }]}>
+              {feedState === 'offline' ? 'OFFLINE' : feedState === 'stale' ? 'STALE' : 'LIVE'}
+            </Text>
+          </View>
+        </View>
 
-      <View style={styles.countRow}>
-        <CountPill label="Clear" count={counts.clear} level="low" />
-        <CountPill label="Slow" count={counts.slow} level="moderate" />
-        <CountPill label="Congested" count={counts.congested} level="severe" />
+        <ProportionBar clear={counts.clear} slow={counts.slow} congested={counts.congested} />
+
+        <View style={styles.legendRow}>
+          {(
+            [
+              ['congested', counts.congested],
+              ['slow', counts.slow],
+              ['clear', counts.clear],
+            ] as [CorridorStatusValue, number][]
+          ).map(([status, count]) => (
+            <View key={status} style={styles.legendItem}>
+              <View
+                style={[
+                  styles.legendDot,
+                  { backgroundColor: toneFor(statusTone[status], colors).solid },
+                ]}
+              />
+              <Text style={styles.legendCount}>{count}</Text>
+              <Text style={styles.legendLabel}>{statusLabel[status]}</Text>
+            </View>
+          ))}
+        </View>
+
+        <View style={styles.healthFooter}>
+          <Ionicons name="time-outline" size={12} color={colors.textTertiary} />
+          <Text style={styles.healthFooterText}>{formatFeedAge(feed.ageMinutes)}</Text>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Refresh the corridor feed"
+            onPress={refresh}
+            style={({ pressed }) => [styles.refreshButton, pressed && styles.pressedDim]}
+          >
+            <Ionicons name="refresh" size={14} color={colors.accent} />
+          </Pressable>
+        </View>
       </View>
 
       {feed.stale ? (
         <View style={styles.staleBanner}>
-          <Ionicons name="alert-circle-outline" size={15} color={toneFor('moderate', colors).text} />
+          <Ionicons
+            name="alert-circle-outline"
+            size={15}
+            color={toneFor('moderate', colors).text}
+          />
           <Text style={[styles.staleBannerText, { color: toneFor('moderate', colors).text }]}>
             This feed may be stale - the last update was {formatFeedAge(feed.ageMinutes)}.
           </Text>
         </View>
       ) : null}
 
-      <Dropdown
-        label="Exit"
-        placeholder="Choose an interchange"
-        options={exitOptions}
-        value={selectedExitId}
-        onChange={handleJumpToExit}
-        helperText="Scrolls the corridor list straight to that exit."
+      <Pressable
+        accessibilityRole="switch"
+        accessibilityState={{ checked: problemsOnly }}
+        onPress={() => setProblemsOnly((on) => !on)}
+        style={({ pressed }) => [
+          styles.toggleChip,
+          problemsOnly && styles.toggleChipActive,
+          pressed && styles.pressedDim,
+        ]}
+      >
+        <Ionicons
+          name={problemsOnly ? 'funnel' : 'funnel-outline'}
+          size={14}
+          color={problemsOnly ? colors.textInverse : colors.textSecondary}
+        />
+        <Text style={[styles.toggleChipText, problemsOnly && styles.toggleChipTextActive]}>
+          Show only what is slow
+        </Text>
+      </Pressable>
+
+      <CorridorRoad
+        rows={rows}
+        emptyTitle="Nothing slow right now"
+        emptyText={`All ${exits.length} interchanges are reporting clear.`}
       />
-
-      <View style={styles.listFrame}>
-        <View style={styles.columnHeader}>
-          <View style={styles.exitCol} />
-          <View style={styles.roadGroup}>
-            <View style={styles.roadCol}>
-              <Ionicons name="arrow-down" size={13} color={colors.textSecondary} />
-            </View>
-            <View style={styles.kmCol}>
-              <Text style={styles.columnLabel}>KM</Text>
-            </View>
-            <View style={styles.roadCol}>
-              <Ionicons name="arrow-up" size={13} color={colors.textSecondary} />
-            </View>
-          </View>
-          <View style={styles.rowSpacer} />
-        </View>
-        <View style={styles.columnCaption}>
-          <View style={styles.captionCol}>
-            <Text style={styles.captionTitle} numberOfLines={1}>
-              Northbound
-            </Text>
-            <Text style={styles.captionText} numberOfLines={1}>
-              to Central Luzon
-            </Text>
-          </View>
-          <View style={[styles.captionCol, styles.captionColEnd]}>
-            <Text style={styles.captionTitle} numberOfLines={1}>
-              Southbound
-            </Text>
-            <Text style={styles.captionText} numberOfLines={1}>
-              to Metro Manila
-            </Text>
-          </View>
-        </View>
-
-        <ScrollView
-          ref={scrollRef}
-          style={styles.list}
-          contentContainerStyle={styles.listContent}
-          nestedScrollEnabled
-          showsVerticalScrollIndicator
-          persistentScrollbar
-        >
-          {exits.map((exit: CorridorExit, index) => {
-            const rowId = String(exit.exit_id);
-            const nb = exit.directions.NB;
-            const sb = exit.directions.SB;
-            const nbTone = laneTone(nb, colors);
-            const sbTone = laneTone(sb, colors);
-            const capStart = index === 0;
-            const capEnd = index === exits.length - 1;
-            const isSelected = rowId === selectedExitId;
-
-            return (
-              <View
-                key={rowId}
-                style={[styles.row, isSelected && styles.rowSelected]}
-                onLayout={handleRowLayout(rowId)}
-              >
-                <View style={styles.exitCol}>
-                  <Text style={[styles.exitName, isSelected && styles.exitNameSelected]} numberOfLines={2}>
-                    {exit.display_name}
-                  </Text>
-                </View>
-
-                <View style={styles.roadGroup}>
-                  <View style={styles.roadCol}>
-                    <RoadLane
-                      color={nb.hasRamp ? nbTone.solid : colors.border}
-                      active={nb.hasRamp}
-                      capStart={capStart}
-                      capEnd={capEnd}
-                    />
-                  </View>
-
-                  <View style={styles.kmCol}>
-                    <View style={[styles.kmBadge, isSelected && styles.kmBadgeSelected]}>
-                      <Text style={[styles.kmBadgeText, isSelected && styles.kmBadgeTextSelected]}>
-                        {exit.km.toFixed(1)}
-                      </Text>
-                    </View>
-                  </View>
-
-                  <View style={styles.roadCol}>
-                    <RoadLane
-                      color={sb.hasRamp ? sbTone.solid : colors.border}
-                      active={sb.hasRamp}
-                      capStart={capStart}
-                      capEnd={capEnd}
-                    />
-                  </View>
-                </View>
-
-                <View style={styles.rowSpacer} />
-              </View>
-            );
-          })}
-        </ScrollView>
-      </View>
-
-      <View style={styles.legend}>
-        {(['clear', 'slow', 'congested'] as CorridorStatusValue[]).map((status) => (
-          <View key={status} style={styles.legendItem}>
-            <View
-              style={[styles.legendDot, { backgroundColor: toneFor(statusTone[status], colors).solid }]}
-            />
-            <Text style={styles.legendText}>{statusLabel[status]}</Text>
-          </View>
-        ))}
-        <View style={styles.legendItem}>
-          <View style={[styles.legendDot, { backgroundColor: colors.border }]} />
-          <Text style={styles.legendText}>No ramp</Text>
-        </View>
-      </View>
     </View>
   );
 };
@@ -400,321 +329,209 @@ export default LiveCorridorStatus;
 
 const makeStyles = (c: ThemePalette) =>
   StyleSheet.create({
-    header: {
+    wrap: {
+      gap: 14,
+    },
+    pressedDim: {
+      opacity: 0.65,
+    },
+
+    healthCard: {
+      backgroundColor: c.surface,
+      borderRadius: 18,
+      borderWidth: 1,
+      borderColor: c.border,
+      padding: 16,
+      gap: 14,
+      shadowColor: c.cardShadow,
+      shadowOpacity: 0.07,
+      shadowRadius: 14,
+      shadowOffset: { width: 0, height: 5 },
+      elevation: 3,
+    },
+    healthTop: {
       flexDirection: 'row',
-      alignItems: 'center',
-      gap: 10,
-      marginBottom: 14,
+      alignItems: 'flex-start',
+      gap: 12,
     },
-    headerIcon: {
-      width: 32,
-      height: 32,
-      borderRadius: 10,
-      alignItems: 'center',
-      justifyContent: 'center',
-      backgroundColor: c.primary,
-    },
-    headerText: {
+    healthTitleGroup: {
       flex: 1,
     },
-    title: {
-      color: c.text,
-      fontSize: Typography.fontSize.base,
-      fontWeight: Typography.fontWeight.bold,
+    eyebrow: {
+      color: c.textTertiary,
+      fontSize: 10,
+      fontWeight: '800',
+      letterSpacing: 1,
+      marginBottom: 4,
     },
-    subtitle: {
-      color: c.textSecondary,
-      fontSize: Typography.fontSize.xs,
-      fontWeight: Typography.fontWeight.medium,
-      marginTop: 2,
+    headline: {
+      fontSize: 21,
+      fontWeight: '800',
+      letterSpacing: -0.3,
+      lineHeight: 26,
     },
-    liveBadge: {
+    livePill: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 4,
-      backgroundColor: c.statusSmoothBg,
-      paddingHorizontal: 8,
-      paddingVertical: 4,
+      gap: 5,
+      paddingHorizontal: 9,
+      paddingVertical: 5,
       borderRadius: 999,
-    },
-    liveBadgeStale: {
-      backgroundColor: c.statusModerateBg,
     },
     liveDot: {
       width: 6,
       height: 6,
       borderRadius: 3,
-      backgroundColor: c.statusSmoothSolid,
-    },
-    liveDotStale: {
-      backgroundColor: c.statusModerateSolid,
     },
     liveText: {
-      color: c.statusSmoothText,
       fontSize: 9,
-      fontWeight: Typography.fontWeight.bold,
-      letterSpacing: 0.5,
+      fontWeight: '800',
+      letterSpacing: 0.6,
     },
-    liveTextStale: {
-      color: c.statusModerateText,
+    proportionBar: {
+      flexDirection: 'row',
+      height: 10,
+      borderRadius: 999,
+      overflow: 'hidden',
+      backgroundColor: c.track,
     },
-    liveBadgeOffline: {
-      backgroundColor: c.surfaceMuted,
-    },
-    liveDotOffline: {
-      backgroundColor: c.textTertiary,
-    },
-    liveTextOffline: {
-      color: c.textTertiary,
-    },
-    statusBox: {
-      alignItems: 'center',
-      justifyContent: 'center',
-      gap: 10,
-      paddingVertical: 36,
-    },
-    statusBoxTitle: {
-      color: c.text,
-      fontSize: Typography.fontSize.base,
-      fontWeight: Typography.fontWeight.bold,
-      textAlign: 'center',
-    },
-    statusBoxText: {
-      color: c.textSecondary,
-      fontSize: Typography.fontSize.sm,
-      fontWeight: Typography.fontWeight.medium,
-      textAlign: 'center',
-      paddingHorizontal: 24,
-    },
-    statusBoxUrl: {
-      color: c.textTertiary,
-      fontSize: Typography.fontSize.xs,
-      fontWeight: Typography.fontWeight.normal,
-      textAlign: 'center',
-      paddingHorizontal: 16,
-    },
-    retryButton: {
-      marginTop: 4,
-      backgroundColor: c.primary,
-      paddingHorizontal: 18,
-      paddingVertical: 9,
-      borderRadius: 10,
-    },
-    retryButtonPressed: {
-      backgroundColor: c.primaryDark,
-    },
-    retryButtonText: {
-      color: c.textInverse,
-      fontSize: Typography.fontSize.sm,
-      fontWeight: Typography.fontWeight.bold,
-    },
-    countRow: {
+    legendRow: {
       flexDirection: 'row',
       flexWrap: 'wrap',
-      gap: 8,
-      marginBottom: 14,
+      gap: 16,
     },
-    countPill: {
+    legendItem: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: 5,
-      paddingHorizontal: 10,
-      paddingVertical: 6,
-      borderRadius: 999,
     },
-    countPillValue: {
+    legendDot: {
+      width: 8,
+      height: 8,
+      borderRadius: 4,
+    },
+    legendCount: {
+      color: c.text,
       fontSize: Typography.fontSize.sm,
-      fontWeight: Typography.fontWeight.bold,
+      fontWeight: '800',
     },
-    countPillLabel: {
+    legendLabel: {
+      color: c.textSecondary,
       fontSize: Typography.fontSize.xs,
-      fontWeight: Typography.fontWeight.medium,
+      fontWeight: '600',
     },
+    healthFooter: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      paddingTop: 12,
+      borderTopWidth: 1,
+      borderTopColor: c.hairline,
+    },
+    healthFooterText: {
+      flex: 1,
+      color: c.textTertiary,
+      fontSize: Typography.fontSize.xs,
+      fontWeight: '600',
+    },
+    refreshButton: {
+      width: 32,
+      height: 32,
+      borderRadius: 11,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: c.primarySoft,
+    },
+
     staleBanner: {
       flexDirection: 'row',
       alignItems: 'flex-start',
       gap: 8,
       backgroundColor: c.statusModerateBg,
       borderRadius: 12,
-      padding: 10,
-      marginBottom: 14,
+      padding: 11,
     },
     staleBannerText: {
       flex: 1,
       fontSize: Typography.fontSize.xs,
-      fontWeight: Typography.fontWeight.medium,
-      lineHeight: 16,
+      fontWeight: '600',
+      lineHeight: 17,
     },
-    // A bounded, bordered "sub-panel" - this is what actually scrolls, so it
-    // needs a clear edge telling the user a drag here stays inside the box.
-    listFrame: {
-      borderRadius: 14,
-      borderWidth: 1,
-      borderColor: c.border,
+
+    toggleChip: {
+      alignSelf: 'flex-start',
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 7,
+      paddingHorizontal: 13,
+      paddingVertical: 10,
+      borderRadius: 999,
       backgroundColor: c.surface,
-      overflow: 'hidden',
-    },
-    columnHeader: {
-      flexDirection: 'row',
-      paddingTop: 10,
-      paddingHorizontal: 14,
-    },
-    columnLabel: {
-      color: c.textSecondary,
-      fontSize: 9,
-      fontWeight: Typography.fontWeight.bold,
-      letterSpacing: 0.5,
-      marginTop: 1,
-    },
-    columnCaption: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      paddingHorizontal: 14,
-      paddingTop: 4,
-      paddingBottom: 8,
-      borderBottomWidth: 1,
-      borderBottomColor: c.hairline,
-    },
-    // The road sits dead centre of the card: it has a fixed width, and the
-    // exit-name column on its left and an empty spacer on its right both take
-    // `flex: 1`, so the leftover space is split evenly on either side of it.
-    roadGroup: {
-      width: ROAD_GROUP_WIDTH,
-      flexDirection: 'row',
-    },
-    /** Mirrors `exitCol`'s flex so the road group stays centred. */
-    rowSpacer: {
-      flex: 1,
-    },
-    captionCol: {
-      alignItems: 'flex-start',
-    },
-    captionColEnd: {
-      alignItems: 'flex-end',
-    },
-    captionTitle: {
-      color: c.textSecondary,
-      fontSize: 10,
-      fontWeight: Typography.fontWeight.bold,
-    },
-    captionText: {
-      color: c.textTertiary,
-      fontSize: 9,
-      fontWeight: Typography.fontWeight.medium,
-    },
-    list: {
-      maxHeight: LIST_MAX_HEIGHT,
-    },
-    listContent: {
-      paddingHorizontal: 14,
-      paddingVertical: 4,
-    },
-    row: {
-      flexDirection: 'row',
-      minHeight: 68,
-    },
-    // Highlight for the exit the user jumped to via the dropdown - a tinted
-    // background band plus an accent bar down the left edge.
-    rowSelected: {
-      backgroundColor: c.primarySoft,
-      marginHorizontal: -14,
-      paddingHorizontal: 14,
-      borderLeftWidth: 3,
-      borderLeftColor: c.accent,
-    },
-    exitCol: {
-      flex: 1,
-      justifyContent: 'center',
-      paddingRight: 6,
-    },
-    exitName: {
-      color: c.text,
-      fontSize: Typography.fontSize.xs,
-      fontWeight: Typography.fontWeight.bold,
-      lineHeight: 14,
-    },
-    exitNameSelected: {
-      color: c.accent,
-    },
-    // No padding, no alignItems offset - the lane fills this column exactly,
-    // so it stretches edge-to-edge with the row above and below it.
-    roadCol: {
-      width: 30,
-      alignItems: 'center',
-    },
-    // Fills its column completely (flex:1 inside a row stretched to the
-    // row's full height) with zero margin, so back-to-back segments touch.
-    roadBar: {
-      flex: 1,
-      width: 20,
-    },
-    roadBarCapStart: {
-      borderTopLeftRadius: 8,
-      borderTopRightRadius: 8,
-    },
-    roadBarCapEnd: {
-      borderBottomLeftRadius: 8,
-      borderBottomRightRadius: 8,
-    },
-    roadDashes: {
-      flex: 1,
-      alignItems: 'center',
-      justifyContent: 'space-evenly',
-      paddingVertical: 6,
-    },
-    roadDash: {
-      width: 2.5,
-      height: 8,
-      borderRadius: 1.5,
-      backgroundColor: 'rgba(255,255,255,0.9)',
-    },
-    kmCol: {
-      width: 46,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    kmBadge: {
-      minWidth: 38,
-      paddingHorizontal: 6,
-      paddingVertical: 3,
-      borderRadius: 8,
       borderWidth: 1,
       borderColor: c.border,
-      backgroundColor: c.surfaceMuted,
-      alignItems: 'center',
     },
-    kmBadgeText: {
+    toggleChipActive: {
+      backgroundColor: c.primary,
+      borderColor: c.primary,
+    },
+    toggleChipText: {
       color: c.textSecondary,
-      fontSize: 10,
-      fontWeight: Typography.fontWeight.bold,
+      fontSize: Typography.fontSize.xs,
+      fontWeight: '700',
     },
-    kmBadgeSelected: {
-      backgroundColor: c.accent,
-      borderColor: c.accent,
-    },
-    kmBadgeTextSelected: {
+    toggleChipTextActive: {
       color: c.textInverse,
     },
-    legend: {
-      flexDirection: 'row',
-      flexWrap: 'wrap',
-      justifyContent: 'center',
-      gap: 14,
-      marginTop: 16,
+
+    stateCard: {
+      alignItems: 'center',
+      gap: 10,
+      paddingVertical: 34,
+      paddingHorizontal: 22,
+      borderRadius: 18,
+      backgroundColor: c.surface,
+      borderWidth: 1,
+      borderColor: c.border,
     },
-    legendItem: {
+    stateIcon: {
+      width: 48,
+      height: 48,
+      borderRadius: 24,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: c.surfaceMuted,
+    },
+    stateTitle: {
+      color: c.text,
+      fontSize: Typography.fontSize.base,
+      fontWeight: '800',
+      textAlign: 'center',
+    },
+    stateText: {
+      color: c.textSecondary,
+      fontSize: Typography.fontSize.sm,
+      fontWeight: '500',
+      textAlign: 'center',
+      lineHeight: 20,
+    },
+    stateUrl: {
+      color: c.textTertiary,
+      fontSize: Typography.fontSize.xs,
+      textAlign: 'center',
+    },
+    retryButton: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 6,
+      gap: 7,
+      marginTop: 2,
+      backgroundColor: c.primary,
+      paddingHorizontal: 16,
+      paddingVertical: 11,
+      borderRadius: 12,
     },
-    legendDot: {
-      width: 9,
-      height: 9,
-      borderRadius: 5,
-    },
-    legendText: {
-      color: c.textSecondary,
-      fontSize: Typography.fontSize.xs,
-      fontWeight: Typography.fontWeight.medium,
+    retryButtonText: {
+      color: c.textInverse,
+      fontSize: Typography.fontSize.sm,
+      fontWeight: '700',
     },
   });

@@ -104,6 +104,8 @@ const MediaPicker: React.FC<MediaPickerProps> = ({
 
       <View style={styles.actionRow}>
         <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ disabled: isFull }}
           disabled={isFull}
           onPress={handlePickFromLibrary}
           style={[styles.libraryButton, isFull && styles.actionDisabled]}
@@ -119,6 +121,10 @@ const MediaPicker: React.FC<MediaPickerProps> = ({
         </Pressable>
 
         <Pressable
+          // Icon-only, so it carries no text for a screen reader to read.
+          accessibilityRole="button"
+          accessibilityLabel="Take a photo"
+          accessibilityState={{ disabled: isFull }}
           disabled={isFull}
           onPress={handleCapture}
           style={[styles.cameraButton, isFull && styles.actionDisabled]}
@@ -145,6 +151,10 @@ const MediaPicker: React.FC<MediaPickerProps> = ({
               )}
 
               <Pressable
+                // Numbered, because several of these sit in a row and
+                // "Remove" repeated four times says nothing about which.
+                accessibilityRole="button"
+                accessibilityLabel={`Remove attachment ${index + 1}`}
                 hitSlop={6}
                 onPress={() => handleRemove(index)}
                 style={styles.removeButton}
@@ -262,7 +272,7 @@ const makeStyles = (c: ThemePalette) =>
       width: 22,
       height: 22,
       borderRadius: 11,
-      backgroundColor: c.dangerRed,
+      backgroundColor: c.danger,
       alignItems: 'center',
       justifyContent: 'center',
       borderWidth: 2,

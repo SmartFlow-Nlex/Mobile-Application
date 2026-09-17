@@ -1,17 +1,41 @@
 import React, { useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
-import { CommunityPost } from '@smartflow/shared';
+import { CommunityPost, TrafficStatus } from '@smartflow/shared';
 import { useTheme, useThemedStyles } from '../../theme';
+import type { CongestionLevel } from '../../lib/trafficModel';
+import { toneFor } from '../dashboard/severity';
 import type { ThemePalette } from '../../theme';
 import { Typography } from '../../constants/typography';
-import StatusBadge from './StatusBadge';
 import MediaViewer from './MediaViewer';
 
 export interface CommunityPostCardProps {
   post: CommunityPost;
   onLike: (id: string) => void;
 }
+
+/**
+ * The condition the poster reported, as a tint rather than a badge.
+ *
+ * This used to be a pill reading "🚛 heavy" pinned to the top-right of every
+ * card - an emoji and a lowercase enum value, loud enough to compete with the
+ * post itself. The same fact now rides in the meta line as a coloured dot and
+ * a word, next to the location it belongs with. The top-right corner it
+ * vacated is where the timestamp sits.
+ */
+const conditionLevel: Record<TrafficStatus, CongestionLevel> = {
+  smooth: 'low',
+  moderate: 'moderate',
+  heavy: 'severe',
+  incident: 'severe',
+};
+
+const conditionLabel: Record<TrafficStatus, string> = {
+  smooth: 'Smooth',
+  moderate: 'Moderate',
+  heavy: 'Heavy',
+  incident: 'Incident',
+};
 
 const CommunityPostCard: React.FC<CommunityPostCardProps> = ({ post, onLike }) => {
   const { colors } = useTheme();
@@ -39,14 +63,42 @@ const CommunityPostCard: React.FC<CommunityPostCardProps> = ({ post, onLike }) =
                   </Text>
                 </View>
               ) : null}
-              <Text style={styles.metaBullet}>•</Text>
-              <Ionicons name="time-outline" size={12} color={colors.textTertiary} />
-              <Text style={styles.metaText}>{post.timeAgo}</Text>
+              <View
+                style={[
+                  styles.conditionChip,
+                  { backgroundColor: toneFor(conditionLevel[post.status], colors).background },
+                ]}
+              >
+                <View
+                  style={[
+                    styles.conditionDot,
+                    { backgroundColor: toneFor(conditionLevel[post.status], colors).solid },
+                  ]}
+                />
+                <Text
+                  style={[
+                    styles.conditionChipText,
+                    { color: toneFor(conditionLevel[post.status], colors).text },
+                  ]}
+                >
+                  {conditionLabel[post.status]}
+                </Text>
+              </View>
             </View>
           </View>
         </View>
 
-        <StatusBadge status={post.status} />
+        {/*
+          Pinned to the card's right edge rather than buried mid-line. It used
+          to sit between the direction chip and the condition chip, competing
+          with two coloured pills for one row - and on a narrow phone that row
+          wrapped, breaking "9d ago" away from its own clock icon. Top-right is
+          where a reader looks for a post's age anyway.
+        */}
+        <View style={styles.timeGroup}>
+          <Ionicons name="time-outline" size={12} color={colors.textTertiary} />
+          <Text style={styles.timeText}>{post.timeAgo}</Text>
+        </View>
       </View>
 
       <Text style={styles.message}>{post.message}</Text>
@@ -158,6 +210,40 @@ const makeStyles = (c: ThemePalette) =>
     fontSize: Typography.fontSize.xs,
     fontWeight: Typography.fontWeight.normal,
   },
+  timeGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    // Never squeezed by a long location name, and nudged onto the author-name
+    // line - that name carries 4pt of bottom margin, so an unshifted stamp
+    // sits a touch high against it.
+    flexShrink: 0,
+    marginTop: 1,
+  },
+  timeText: {
+    // A step quieter than the location: it is the least actionable fact on the
+    // card, and it now sits alone where nothing else competes for the eye.
+    color: c.textTertiary,
+    fontSize: Typography.fontSize.xs,
+    fontWeight: Typography.fontWeight.normal,
+  },
+  conditionChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 999,
+  },
+  conditionDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  conditionChipText: {
+    fontSize: 10,
+    fontWeight: '800',
+  },
   directionChip: {
     paddingHorizontal: 5,
     paddingVertical: 1,
@@ -168,11 +254,6 @@ const makeStyles = (c: ThemePalette) =>
     color: c.accent,
     fontSize: 10,
     fontWeight: Typography.fontWeight.bold,
-  },
-  metaBullet: {
-    color: c.textSecondary,
-    fontSize: Typography.fontSize.xs,
-    marginHorizontal: 2,
   },
   message: {
     color: c.text,

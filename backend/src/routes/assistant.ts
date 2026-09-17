@@ -5,6 +5,7 @@ import type {
   ChatCompletionMessageParam,
   ChatCompletionTool,
 } from 'openai/resources/chat/completions';
+import type { AssistantToolName } from '@smartflow/shared';
 import {
   CorridorExit,
   describeFeedAge,
@@ -110,7 +111,16 @@ THE COMPLETE LIST OF NLEX EXITS (authoritative - nothing else is an NLEX exit, a
 ${exitNames.join(', ')}`;
 }
 
-const tools: ChatCompletionTool[] = [
+/**
+ * A tool whose name is one the app has a label for.
+ *
+ * Registering a tool here that is not in the shared `ASSISTANT_TOOLS` list is
+ * a compile error, which is the point: the chat UI shows the reader which
+ * tools ran, and an unlisted one reaches them as a bare function name.
+ */
+type LabelledTool = ChatCompletionTool & { function: { name: AssistantToolName } };
+
+const tools: LabelledTool[] = [
   {
     type: 'function',
     function: {

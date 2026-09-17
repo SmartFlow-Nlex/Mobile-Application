@@ -7,8 +7,6 @@ import { Typography } from '../../constants/typography';
 import { EventForecastSeed, eventDate } from '../../constants/dashboardData';
 import { getExit } from '../../constants/nlexSegments';
 import { describeDayOffset, formatEventDateTime } from '../../lib/datetime';
-import { congestionLevelLabel } from '../../lib/trafficModel';
-import { toneFor } from './severity';
 
 export interface EventForecastCardProps {
   event: EventForecastSeed;
@@ -24,7 +22,6 @@ const EventForecastCard: React.FC<EventForecastCardProps> = ({
 }) => {
   const { colors } = useTheme();
   const styles = useThemedStyles(makeStyles);
-  const tone = toneFor(event.severity, colors);
   const date = eventDate(event, now);
   const affectedNames = event.affectedExitIds
     .map((id) => getExit(id)?.name)
@@ -42,12 +39,6 @@ const EventForecastCard: React.FC<EventForecastCardProps> = ({
               <Text style={styles.whenPillText}>{describeDayOffset(date, now)}</Text>
             </View>
           </View>
-        </View>
-
-        <View style={[styles.severityPill, { backgroundColor: tone.background }]}>
-          <Text style={[styles.severityPillText, { color: tone.text }]}>
-            {congestionLevelLabel[event.severity]}
-          </Text>
         </View>
       </View>
 
@@ -141,15 +132,6 @@ const makeStyles = (c: ThemePalette) =>
     color: c.textSecondary,
     fontSize: 10,
     fontWeight: '700',
-  },
-  severityPill: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
-  },
-  severityPillText: {
-    fontSize: Typography.fontSize.xs,
-    fontWeight: '800',
   },
   metaRow: {
     marginTop: 12,

@@ -2,7 +2,6 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import {
-  Image,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -24,42 +23,95 @@ import {
   eventForecasts,
   eventLoadForSegment,
   mlHotspots,
+  compareHotspots,
   EventForecastSeed,
 } from '../../constants/dashboardData';
 import { addHours, describeHourOffset } from '../../lib/datetime';
 import { SegmentPrediction, predictNetwork, predictSegment } from '../../lib/trafficModel';
 import { useLiveClock } from '../../hooks/useNow';
-import AvatarButton from '../../components/AvatarButton';
+import AppHeader from '../../components/AppHeader';
+import AIAssistantFAB, { FAB_CLEARANCE } from '../../components/community/AIAssistantFAB';
+import ViewAllSheet from '../../components/dashboard/ViewAllSheet';
+import { useAuth } from '../../auth';
 import StatusSummaryCard from '../../components/dashboard/StatusSummaryCard';
-import ForecastTimeCard from '../../components/dashboard/ForecastTimeCard';
 import SegmentForecastCard from '../../components/dashboard/SegmentForecastCard';
 import EventForecastCard from '../../components/dashboard/EventForecastCard';
 import MlHotspotCard from '../../components/dashboard/MlHotspotCard';
 import OutlookStrip from '../../components/dashboard/OutlookStrip';
 
-const filterOptions = ['Right Now', 'Today', 'This Week'] as const;
+/**
+ * How many cards each list section previews on the dashboard.
+ *
+ * The dashboard is a summary, not a archive: both of these lists are seeded
+ * with three items today but are meant to grow, and at ten each the screen
+ * would be a 3,000pt scroll with the status hero buried at the top of it. The
+ * preview shows the most relevant few and "See all" opens the full list.
+ */
+const PREVIEW_COUNT = 3;
+
+/** Both draw a strip - an option that rendered nothing has been removed. */
+const filterOptions = ['Today', 'This Week'] as const;
 type FilterOption = (typeof filterOptions)[number];
+
+/** Morning / afternoon / evening, by the phone's own clock. */
+function greetingFor(at: Date): string {
+  const hour = at.getHours();
+  if (hour < 12) {
+    return 'Good morning';
+  }
+  if (hour < 18) {
+    return 'Good afternoon';
+  }
+  return 'Good evening';
+}
+
+/** Just the first name - a full "Kiarra Jem Dela Cruz" overruns the line. */
+function firstNameOf(fullName: string | undefined): string | null {
+  const first = (fullName ?? '').trim().split(/\s+/)[0];
+  return first !== undefined && first.length > 0 ? first : null;
+}
 
 export default function DashboardScreen(): React.ReactElement {
   const { colors } = useTheme();
   const styles = useThemedStyles(makeStyles);
   const router = useRouter();
+  const { session } = useAuth();
 
   // Coarse ticker: the seconds-accurate clock lives inside StatusSummaryCard so
   // the whole screen is not re-rendered every second.
   const { now, refresh } = useLiveClock(15000);
 
-  const [activeFilter, setActiveFilter] = useState<FilterOption>('Right Now');
+  const [activeFilter, setActiveFilter] = useState<FilterOption>('Today');
   const [offsetHours, setOffsetHours] = useState(0);
   const [direction, setDirection] = useState<NlexDirectionId>('northbound');
   const [fromId, setFromId] = useState<string | null>(null);
   const [toId, setToId] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  /** Which full list is open, if any. A sheet rather than a pushed screen. */
+  const [viewAll, setViewAll] = useState<'events' | 'hotspots' | null>(null);
 
-  const forecastAt = useMemo(() => addHours(now, offsetHours), [now, offsetHours]);
-  const horizonLabel = describeHourOffset(offsetHours);
+  /**
+   * The horizon only means something once there is a segment to forecast.
+   *
+   * Gated on the raw endpoints rather than on `prediction`, which is itself
+   * derived from the horizon - reading it here would be a cycle. These three
+   * pieces of state are all the readiness check needs.
+   */
+  const segmentReady =
+    fromId !== null && toId !== null && isValidPair(direction, fromId, toId);
+
+  // A stale "+12h" must not linger once the segment that justified it is gone.
+  const effectiveOffset = segmentReady ? offsetHours : 0;
+
+  const forecastAt = useMemo(
+    () => addHours(now, effectiveOffset),
+    [now, effectiveOffset],
+  );
+  const horizonLabel = describeHourOffset(effectiveOffset);
 
   const networkStatus = useMemo(() => predictNetwork(now), [now]);
+
+  const firstName = firstNameOf(session?.fullName);
 
   /** Every exit the selected trip passes through, endpoints included. */
   const segmentExitIds = useMemo(() => {
@@ -73,6 +125,25 @@ export default function DashboardScreen(): React.ReactElement {
     () => eventLoadForSegment(segmentExitIds, forecastAt, now),
     [segmentExitIds, forecastAt, now],
   );
+
+  /** The same stretch at the present moment, so the forecast has a baseline. */
+  const eventImpactNow = useMemo(
+    () => eventLoadForSegment(segmentExitIds, now, now),
+    [segmentExitIds, now],
+  );
+
+  const predictionNow: SegmentPrediction | null = useMemo(() => {
+    if (fromId === null || toId === null || !isValidPair(direction, fromId, toId)) {
+      return null;
+    }
+    return predictSegment({
+      direction,
+      fromId,
+      toId,
+      at: now,
+      eventLoad: eventImpactNow.load,
+    });
+  }, [direction, fromId, toId, now, eventImpactNow.load]);
 
   const prediction: SegmentPrediction | null = useMemo(() => {
     if (fromId === null || toId === null || !isValidPair(direction, fromId, toId)) {
@@ -93,11 +164,33 @@ export default function DashboardScreen(): React.ReactElement {
     );
   }, [now]);
 
+
   const affectsSelection = useCallback(
     (event: EventForecastSeed): boolean =>
       segmentExitIds.length > 0 &&
       event.affectedExitIds.some((id) => segmentExitIds.includes(id)),
     [segmentExitIds],
+  );
+
+  /**
+   * Preview order: anything touching the trip the user has actually selected
+   * comes first, then soonest. Plain date order buried a relevant event behind
+   * two that had nothing to do with where they were going.
+   */
+  const previewEvents = useMemo(() => {
+    const scored = [...upcomingEvents].sort((a, b) => {
+      const relevance = Number(affectsSelection(b)) - Number(affectsSelection(a));
+      return relevance !== 0
+        ? relevance
+        : eventDate(a, now).getTime() - eventDate(b, now).getTime();
+    });
+    return scored.slice(0, PREVIEW_COUNT);
+  }, [upcomingEvents, affectsSelection, now]);
+
+  /** Worst first - a hotspot list is only useful ranked by how bad it is. */
+  const previewHotspots = useMemo(
+    () => [...mlHotspots].sort(compareHotspots).slice(0, PREVIEW_COUNT),
+    [],
   );
 
   /**
@@ -127,6 +220,13 @@ export default function DashboardScreen(): React.ReactElement {
     [direction, toId],
   );
 
+  /** Back to an empty card: no route, and no horizon that outlived it. */
+  const handleClearRoute = useCallback((): void => {
+    setFromId(null);
+    setToId(null);
+    setOffsetHours(0);
+  }, []);
+
   const handleRefresh = useCallback((): void => {
     setRefreshing(true);
     refresh();
@@ -137,22 +237,7 @@ export default function DashboardScreen(): React.ReactElement {
     <SafeAreaView edges={['top']} style={styles.safeArea}>
       <View style={styles.screen}>
         {/* Status-bar style is set once for all tabs in app/(tabs)/_layout.tsx. */}
-        <View style={styles.headerBar}>
-          <View style={styles.brandGroup}>
-            <View style={styles.brandIcon}>
-              <Image
-                source={require('../../assets/smartflow-logo.png')}
-                style={styles.brandLogo}
-                resizeMode="contain"
-              />
-            </View>
-            <View style={styles.brandText}>
-              <Text style={styles.brandTitle}>SmartFlow NLEX</Text>
-            </View>
-          </View>
-
-          <AvatarButton initials="NT" onPress={() => router.push('/profile')} />
-        </View>
+        <AppHeader />
 
         <ScrollView
           style={styles.scroll}
@@ -167,47 +252,31 @@ export default function DashboardScreen(): React.ReactElement {
             />
           }
         >
+          {/*
+            Orientation before data: who is looking and when. The hero card
+            under it opens straight into "Current Status" with no indication
+            of whose app this is or what day it is.
+          */}
+          {/*
+            No date here any more: the status card immediately below carries
+            it in full, and the same date twice within one screenful is the
+            redundancy this dashboard keeps being cleaned of.
+          */}
+          <View style={styles.greeting}>
+            <Text style={styles.greetingText} numberOfLines={1}>
+              {greetingFor(now)}
+              {firstName === null ? '' : `, ${firstName}`}
+            </Text>
+          </View>
+
           <StatusSummaryCard status={networkStatus} />
 
           <SectionTitle icon="trending-up" title="Traffic Forecast" />
-          <ForecastTimeCard
-            now={now}
-            offsetHours={offsetHours}
-            onChangeOffset={setOffsetHours}
-          />
-
-          <View style={styles.filterRow}>
-            {filterOptions.map((item) => {
-              const active = item === activeFilter;
-              return (
-                <Pressable
-                  key={item}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: active }}
-                  onPress={() => setActiveFilter(item)}
-                  style={({ pressed }) => [
-                    styles.filterPill,
-                    active && styles.filterPillActive,
-                    pressed && !active && styles.filterPillPressed,
-                  ]}
-                >
-                  <Text style={[styles.filterPillText, active && styles.filterPillTextActive]}>
-                    {item}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-
-          {activeFilter === 'Right Now' ? null : (
-            <OutlookStrip
-              scope={activeFilter === 'Today' ? 'today' : 'week'}
-              direction={direction}
-              now={now}
-            />
-          )}
-
-          <SectionTitle icon="swap-horizontal" title="Segment Status" />
+          {/*
+            One card, three steps, in the order the dependency runs: route,
+            then hour, then result. This was two sections with two headings and
+            the hour chips sat ABOVE the route they were locked behind.
+          */}
           <SegmentForecastCard
             direction={direction}
             fromId={fromId}
@@ -216,17 +285,65 @@ export default function DashboardScreen(): React.ReactElement {
             onChangeFrom={handleFromChange}
             onChangeTo={setToId}
             prediction={prediction}
+            predictionNow={predictionNow}
             eventDriver={eventImpact.source}
             horizonLabel={horizonLabel}
+            now={now}
+            offsetHours={effectiveOffset}
+            onChangeOffset={setOffsetHours}
+            onClear={handleClearRoute}
+            forecastAt={forecastAt}
+          />
+
+          <SectionTitle icon="calendar-outline" title="Corridor Outlook" />
+          {/*
+            Its own section now. It was sitting under "Traffic Forecast" above
+            the segment card, looking like a control for it - and its "Right
+            Now" option rendered nothing at all, so a third of the time the
+            control appeared broken. Today and This Week both draw a strip.
+          */}
+          <View
+            accessibilityRole="tablist"
+            style={styles.segmented}
+          >
+            {filterOptions.map((item) => {
+              const active = item === activeFilter;
+              return (
+                <Pressable
+                  key={item}
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected: active }}
+                  onPress={() => setActiveFilter(item)}
+                  style={({ pressed }) => [
+                    styles.segment,
+                    active && styles.segmentActive,
+                    pressed && !active && styles.segmentPressed,
+                  ]}
+                >
+                  <Text style={[styles.segmentText, active && styles.segmentTextActive]}>
+                    {item}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+
+          <OutlookStrip
+            scope={activeFilter === 'Today' ? 'today' : 'week'}
+            direction={direction}
+            now={now}
           />
 
           <SectionTitle
             icon="calendar"
-            title="Event-Triggered Forecasts"
+            title="Event Forecasts"
             badge={String(upcomingEvents.length)}
+            total={upcomingEvents.length}
+            shown={previewEvents.length}
+            onSeeAll={() => setViewAll('events')}
           />
           <View style={styles.cardList}>
-            {upcomingEvents.map((event) => (
+            {previewEvents.map((event) => (
               <EventForecastCard
                 key={event.id}
                 event={event}
@@ -236,25 +353,59 @@ export default function DashboardScreen(): React.ReactElement {
             ))}
           </View>
 
-          <SectionTitle icon="alert-circle" title="ML-Identified Hotspots" tone="danger" />
-          <View style={styles.cardList}>
-            {mlHotspots.map((hotspot) => (
+          <SectionTitle
+            icon="alert-circle"
+            title="ML Hotspots"
+            tone="danger"
+            badge={String(mlHotspots.length)}
+            total={mlHotspots.length}
+            shown={previewHotspots.length}
+            onSeeAll={() => setViewAll('hotspots')}
+          />
+          {/* Last list in the scroll, so no trailing margin - the scroll
+              view's own FAB clearance is the only space wanted below it. */}
+          <View style={[styles.cardList, styles.cardListLast]}>
+            {previewHotspots.map((hotspot) => (
               <MlHotspotCard key={hotspot.id} hotspot={hotspot} />
             ))}
           </View>
         </ScrollView>
 
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Open the AI assistant"
-          onPress={() => router.push('/(tabs)/assistant')}
-          style={({ pressed }) => [styles.fab, pressed && styles.fabPressed]}
+        <AIAssistantFAB onPress={() => router.push('/(tabs)/assistant')} />
+
+        {/*
+          The full lists, as sheets over the dashboard. They were a pushed
+          "Insights" screen; a sheet keeps your place on the dashboard, which
+          is what you want when you are only glancing at the rest of a list.
+        */}
+        <ViewAllSheet
+          visible={viewAll === 'events'}
+          onClose={() => setViewAll(null)}
+          title="Event Forecasts"
+          sortLabel="soonest first"
+          count={upcomingEvents.length}
         >
-          <Ionicons name="chatbubble-ellipses" size={22} color={colors.textInverse} />
-          <View style={styles.aiBadge}>
-            <Text style={styles.aiBadgeText}>AI</Text>
-          </View>
-        </Pressable>
+          {upcomingEvents.map((event) => (
+            <EventForecastCard
+              key={event.id}
+              event={event}
+              now={now}
+              affectsSelection={affectsSelection(event)}
+            />
+          ))}
+        </ViewAllSheet>
+
+        <ViewAllSheet
+          visible={viewAll === 'hotspots'}
+          onClose={() => setViewAll(null)}
+          title="ML Hotspots"
+          sortLabel="most severe first"
+          count={mlHotspots.length}
+        >
+          {[...mlHotspots].sort(compareHotspots).map((hotspot) => (
+            <MlHotspotCard key={hotspot.id} hotspot={hotspot} />
+          ))}
+        </ViewAllSheet>
       </View>
     </SafeAreaView>
   );
@@ -265,6 +416,12 @@ interface SectionTitleProps {
   title: string;
   badge?: string;
   tone?: 'primary' | 'danger';
+  /** Everything in the list, not just what is previewed. */
+  total?: number;
+  /** How many of them this section is showing. */
+  shown?: number;
+  /** Opens the full list. Only rendered when there is more to see. */
+  onSeeAll?: () => void;
 }
 
 const SectionTitle: React.FC<SectionTitleProps> = ({
@@ -272,22 +429,53 @@ const SectionTitle: React.FC<SectionTitleProps> = ({
   title,
   badge,
   tone = 'primary',
+  total,
+  shown,
+  onSeeAll,
 }) => {
   const { colors } = useTheme();
   const styles = useThemedStyles(makeStyles);
 
+  // No point offering View All when everything is already on screen.
+  const hasMore =
+    onSeeAll !== undefined &&
+    total !== undefined &&
+    shown !== undefined &&
+    total > shown;
+
   return (
-    <View style={styles.sectionHeader}>
-      <Ionicons
-        name={icon}
-        size={18}
-        color={tone === 'danger' ? colors.danger : colors.primary}
-      />
+    <View accessibilityRole="header" style={styles.sectionHeader}>
+      {/*
+        The glyph sits in a tinted tile rather than bare on the page. It was
+        drawn in `colors.primary`, which is a SURFACE navy - against the dark
+        page that is barely darker than the background, so the icon all but
+        vanished in dark mode. `accent` is the palette's foreground-safe brand
+        colour and inverts between themes for exactly this.
+      */}
+      <View style={[styles.sectionIconTile, tone === 'danger' && styles.sectionIconTileDanger]}>
+        <Ionicons
+          name={icon}
+          size={15}
+          color={tone === 'danger' ? colors.danger : colors.accent}
+        />
+      </View>
       <Text style={styles.sectionTitle}>{title}</Text>
       {badge !== undefined ? (
         <View style={styles.sectionBadge}>
           <Text style={styles.sectionBadgeText}>{badge}</Text>
         </View>
+      ) : null}
+      {hasMore ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`View all ${total} ${title}`}
+          hitSlop={8}
+          onPress={onSeeAll}
+          style={({ pressed }) => [styles.seeAll, pressed && styles.seeAllPressed]}
+        >
+          <Text style={styles.seeAllText}>View All</Text>
+          <Ionicons name="chevron-forward" size={13} color={colors.accent} />
+        </Pressable>
       ) : null}
     </View>
   );
@@ -295,164 +483,136 @@ const SectionTitle: React.FC<SectionTitleProps> = ({
 
 const makeStyles = (c: ThemePalette) =>
   StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: c.primary,
-  },
-  screen: {
-    flex: 1,
-    backgroundColor: c.background,
-  },
-  scroll: {
-    flex: 1,
-  },
-  content: {
-    paddingHorizontal: 16,
-    paddingTop: 18,
-    paddingBottom: 128,
-  },
-  headerBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: c.primary,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-  },
-  brandGroup: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    flex: 1,
-  },
-  brandIcon: {
-    width: 30,
-    height: 30,
-    borderRadius: 10,
-    backgroundColor: c.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
-  },
-  brandLogo: {
-    width: 22,
-    height: 22,
-  },
-  brandText: {
-    flex: 1,
-  },
-  brandTitle: {
-    color: c.textInverse,
-    fontSize: Typography.fontSize.lg,
-    fontWeight: '700',
-    lineHeight: 20,
-  },
-  headerActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  bellButton: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.15)',
-  },
-  filterRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginBottom: 20,
-  },
-  filterPill: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 10,
-    borderRadius: 12,
-    backgroundColor: c.surface,
-    borderWidth: 1,
-    borderColor: c.border,
-  },
-  filterPillActive: {
-    backgroundColor: c.primary,
-    borderColor: c.primary,
-  },
-  filterPillPressed: {
-    backgroundColor: c.surfaceLight,
-  },
-  filterPillText: {
-    color: c.textSecondary,
-    fontSize: Typography.fontSize.sm,
-    fontWeight: '700',
-  },
-  filterPillTextActive: {
-    color: c.textInverse,
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 10,
-  },
-  sectionTitle: {
-    fontSize: Typography.fontSize.lg,
-    fontWeight: '800',
-    color: c.text,
-  },
-  sectionBadge: {
-    minWidth: 20,
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    borderRadius: 999,
-    backgroundColor: c.surfaceLight,
-    alignItems: 'center',
-  },
-  sectionBadgeText: {
-    color: c.accent,
-    fontSize: 11,
-    fontWeight: '800',
-  },
-  cardList: {
-    gap: 12,
-    marginBottom: 22,
-  },
-  fab: {
-    position: 'absolute',
-    right: 16,
-    bottom: 24,
-    width: 58,
-    height: 58,
-    borderRadius: 29,
-    backgroundColor: c.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: c.primaryShadow,
-    shadowOpacity: 0.28,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 10,
-  },
-  fabPressed: {
-    backgroundColor: c.primaryDark,
-  },
-  aiBadge: {
-    position: 'absolute',
-    top: -2,
-    right: -2,
-    backgroundColor: '#FF3B30',
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: c.surface,
-  },
-  aiBadgeText: {
-    color: c.textInverse,
-    fontSize: 9,
-    fontWeight: '800',
-  },
-});
+    safeArea: {
+      flex: 1,
+      backgroundColor: c.primary,
+    },
+    screen: {
+      flex: 1,
+      backgroundColor: c.background,
+    },
+    scroll: {
+      flex: 1,
+    },
+    greeting: {
+      flexDirection: 'row',
+      // Baseline-ish: the date sits with the bottom of the greeting rather
+      // than floating at its cap height.
+      alignItems: 'flex-end',
+      gap: 12,
+      marginBottom: 16,
+    },
+    greetingText: {
+      flex: 1,
+      color: c.text,
+      fontSize: 24,
+      fontWeight: '800',
+      letterSpacing: -0.4,
+    },
+    content: {
+      paddingHorizontal: 16,
+      paddingTop: 18,
+      // Clears the floating assistant button (56pt tall, 84pt up) so the last
+      // hotspot card is never stuck underneath it.
+      paddingBottom: FAB_CLEARANCE,
+    },
+
+    // Segmented scope control: one recessed track holding three pills, rather
+    // than three separate bordered buttons. The track makes it read as a
+    // single choice with one option selected.
+    segmented: {
+      flexDirection: 'row',
+      gap: 4,
+      padding: 4,
+      borderRadius: 14,
+      backgroundColor: c.surfaceMuted,
+      borderWidth: 1,
+      borderColor: c.border,
+      marginBottom: 16,
+    },
+    segment: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingVertical: 9,
+      borderRadius: 10,
+    },
+    segmentActive: {
+      backgroundColor: c.primary,
+    },
+    segmentPressed: {
+      backgroundColor: c.pressed,
+    },
+    segmentText: {
+      color: c.textSecondary,
+      fontSize: Typography.fontSize.sm,
+      fontWeight: '700',
+    },
+    segmentTextActive: {
+      color: c.textInverse,
+    },
+
+    sectionHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      marginBottom: 12,
+    },
+    sectionIconTile: {
+      width: 26,
+      height: 26,
+      borderRadius: 8,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: c.primarySoft,
+    },
+    sectionIconTileDanger: {
+      backgroundColor: c.statusHeavyBg,
+    },
+    sectionTitle: {
+      flex: 1,
+      fontSize: Typography.fontSize.lg,
+      fontWeight: '800',
+      color: c.text,
+      letterSpacing: -0.2,
+    },
+    sectionBadge: {
+      minWidth: 22,
+      paddingHorizontal: 7,
+      paddingVertical: 2,
+      borderRadius: 999,
+      backgroundColor: c.primarySoft,
+      borderWidth: 1,
+      borderColor: c.primarySoftBorder,
+      alignItems: 'center',
+    },
+    sectionBadgeText: {
+      color: c.accent,
+      fontSize: 11,
+      fontWeight: '800',
+    },
+    seeAll: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 2,
+      paddingHorizontal: 9,
+      paddingVertical: 6,
+      borderRadius: 9,
+      backgroundColor: c.primarySoft,
+    },
+    seeAllPressed: {
+      opacity: 0.65,
+    },
+    seeAllText: {
+      color: c.accent,
+      fontSize: Typography.fontSize.xs,
+      fontWeight: '800',
+    },
+    cardList: {
+      gap: 12,
+      marginBottom: 24,
+    },
+    cardListLast: {
+      marginBottom: 0,
+    },
+  });

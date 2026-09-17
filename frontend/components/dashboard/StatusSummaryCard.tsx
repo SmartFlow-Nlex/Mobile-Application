@@ -4,7 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTheme, useThemedStyles } from '../../theme';
 import type { ThemePalette } from '../../theme';
 import { Typography } from '../../constants/typography';
-import { formatClock } from '../../lib/datetime';
+import { formatClock, formatLongDate } from '../../lib/datetime';
 import { NetworkStatus, congestionLevelLabel } from '../../lib/trafficModel';
 import useNow from '../../hooks/useNow';
 import { toneFor } from './severity';
@@ -31,18 +31,34 @@ const StatusSummaryCard: React.FC<StatusSummaryCardProps> = ({ status }) => {
           <Text style={styles.title}>NLEX Traffic</Text>
         </View>
 
+        {/*
+          Says what it measures. On its own this pill read "Low" next to the
+          words "NLEX Traffic" - low what? Everywhere else the tier has context
+          ("Congestion Probability" sits directly under it), but here it was a
+          bare magnitude with no noun attached.
+        */}
         <View style={styles.levelPill}>
           <View style={[styles.levelDot, { backgroundColor: tone.solid }]} />
-          <Text style={styles.levelPillText}>{congestionLevelLabel[status.level]}</Text>
+          <Text style={styles.levelPillText}>
+            {congestionLevelLabel[status.level]} congestion
+          </Text>
         </View>
       </View>
 
+      {/*
+        Two lines, because the full date plus "Updated 3:05:40 AM" will not fit
+        across a phone on one. The date leads and the timestamp sits under it,
+        so the card says what day it is without the stamp losing its own line.
+
+        The ticking seconds are the live signal now that the LIVE pill is gone:
+        a stamp visibly counting is the thing that says the data is current,
+        and the badge next to it only repeated that in words.
+      */}
       <View style={styles.updatedRow}>
         <Ionicons name="time-outline" size={15} color={colors.textInverse} />
-        <Text style={styles.updatedText}>Updated {formatClock(now)}</Text>
-        <View style={styles.liveBadge}>
-          <View style={styles.liveDot} />
-          <Text style={styles.liveText}>LIVE</Text>
+        <View style={styles.updatedGroup}>
+          <Text style={styles.updatedDate}>{formatLongDate(now)}</Text>
+          <Text style={styles.updatedText}>Updated {formatClock(now)}</Text>
         </View>
       </View>
 
@@ -60,11 +76,16 @@ const StatusSummaryCard: React.FC<StatusSummaryCardProps> = ({ status }) => {
       </View>
 
       {status.busiestSegment.length > 0 ? (
-        <View style={styles.footerRow}>
-          <Ionicons name="alert-circle-outline" size={14} color="rgba(255,255,255,0.85)" />
-          <Text style={styles.footerText} numberOfLines={1}>
-            Heaviest right now: {status.busiestSegment}
-          </Text>
+        <View style={styles.heaviestPanel}>
+          <View style={styles.heaviestIcon}>
+            <Ionicons name="alert-circle" size={15} color={colors.primary} />
+          </View>
+          <View style={styles.heaviestGroup}>
+            <Text style={styles.heaviestLabel}>HEAVIEST RIGHT NOW</Text>
+            <Text style={styles.heaviestValue} numberOfLines={2}>
+              {status.busiestSegment}
+            </Text>
+          </View>
         </View>
       ) : null}
     </View>
@@ -129,36 +150,23 @@ const makeStyles = (c: ThemePalette) =>
   updatedRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 8,
     marginTop: 14,
     marginBottom: 14,
   },
-  updatedText: {
-    color: 'rgba(255,255,255,0.9)',
-    fontSize: Typography.fontSize.sm,
-    fontWeight: '500',
+  updatedGroup: {
+    flex: 1,
   },
-  liveBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: 'rgba(255,255,255,0.18)',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 999,
-    marginLeft: 2,
-  },
-  liveDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#4ADE80',
-  },
-  liveText: {
+  updatedDate: {
     color: c.textInverse,
-    fontSize: 9,
-    fontWeight: '800',
-    letterSpacing: 0.5,
+    fontSize: Typography.fontSize.base,
+    fontWeight: '700',
+  },
+  updatedText: {
+    color: 'rgba(255,255,255,0.75)',
+    fontSize: Typography.fontSize.xs,
+    fontWeight: '500',
+    marginTop: 1,
   },
   metricGrid: {
     flexDirection: 'row',
@@ -185,16 +193,60 @@ const makeStyles = (c: ThemePalette) =>
     fontSize: Typography.fontSize.base,
     fontWeight: '700',
   },
-  footerRow: {
+  /*
+    This names the one segment actually worth acting on, and it used to be the
+    least prominent thing on the card: a 12pt line at 85% white sitting flush
+    on the navy, reading as a footnote under the metrics.
+
+    It now gets the same inset-panel treatment as the metric cards above, with
+    the same label-over-value split, so it belongs to the card rather than
+    trailing off the bottom of it. What makes it carry is contrast, not colour:
+    a brighter panel than the metrics (0.16 against their 0.12), a defining
+    hairline they do not have, a solid-white icon chip for a focal point, and
+    the segment name at 16pt/800 in full white instead of 12pt/600 at 85%.
+
+    Deliberately not a red band. The level pill at the top already carries the
+    severity colour, so a second alarm colour here would both repeat it and
+    make an ordinary glance at the dashboard feel like a warning - and on a
+    quiet morning it would be shouting about the busiest of several clear
+    segments.
+  */
+  heaviestPanel: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    marginTop: 14,
+    gap: 10,
+    marginTop: 12,
+    backgroundColor: 'rgba(255,255,255,0.16)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.22)',
+    borderRadius: 14,
+    paddingVertical: 11,
+    paddingHorizontal: 12,
   },
-  footerText: {
-    color: 'rgba(255,255,255,0.85)',
-    fontSize: Typography.fontSize.xs,
-    fontWeight: '600',
+  heaviestIcon: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: c.textInverse,
+  },
+  heaviestGroup: {
     flex: 1,
+  },
+  heaviestLabel: {
+    color: 'rgba(255,255,255,0.72)',
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.6,
+    marginBottom: 2,
+  },
+  heaviestValue: {
+    color: c.textInverse,
+    fontSize: Typography.fontSize.base,
+    fontWeight: '800',
+    // Two lines, because "Paso de Blas - NLEX Harbor Link" was already close
+    // to the edge at 12pt and truncates outright at 16.
+    lineHeight: 20,
   },
 });

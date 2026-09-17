@@ -101,6 +101,24 @@ export const mlHotspots: HotspotSeed[] = [
 ];
 
 /** Resolve a seed's `inDays` / `startHour` into a concrete Date. */
+/**
+ * Worst hotspot first, then the busiest.
+ *
+ * Shared by the dashboard preview and the full Insights list so the top three
+ * on the dashboard are genuinely the top three of the whole set, rather than
+ * whichever three happened to be declared first.
+ */
+const hotspotToneRank: Record<HotspotSeed['tone'], number> = {
+  critical: 0,
+  warning: 1,
+  caution: 2,
+};
+
+export function compareHotspots(a: HotspotSeed, b: HotspotSeed): number {
+  const byTone = hotspotToneRank[a.tone] - hotspotToneRank[b.tone];
+  return byTone !== 0 ? byTone : b.incidents30Days - a.incidents30Days;
+}
+
 export function eventDate(seed: EventForecastSeed, now: Date): Date {
   const date = new Date(now);
   date.setDate(date.getDate() + seed.inDays);

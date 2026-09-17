@@ -11,38 +11,47 @@ export interface FilterTabsProps {
   onTabChange: (tab: ActiveCommunityTab) => void;
 }
 
+/** One entry per tab, so the id, label and icon are each written once. */
+const tabs: {
+  id: ActiveCommunityTab;
+  label: string;
+  icon: keyof typeof Ionicons.glyphMap;
+}[] = [
+  { id: 'community', label: 'Community Updates', icon: 'people-outline' },
+  { id: 'incidents', label: 'Recent Incidents', icon: 'warning-outline' },
+];
+
 const FilterTabs: React.FC<FilterTabsProps> = ({ activeTab, onTabChange }) => {
   const { colors } = useTheme();
   const styles = useThemedStyles(makeStyles);
-  return (
-    <View style={styles.container}>
-      <Pressable
-        onPress={() => onTabChange('community')}
-        style={[styles.tab, activeTab === 'community' && styles.tabActive]}
-      >
-        <Ionicons
-          name="people-outline"
-          size={16}
-          color={activeTab === 'community' ? colors.accent : colors.textSecondary}
-        />
-        <Text style={[styles.tabLabel, activeTab === 'community' && styles.tabLabelActive]}>
-          Community Updates
-        </Text>
-      </Pressable>
 
-      <Pressable
-        onPress={() => onTabChange('incidents')}
-        style={[styles.tab, activeTab === 'incidents' && styles.tabActive]}
-      >
-        <Ionicons
-          name="warning-outline"
-          size={16}
-          color={activeTab === 'incidents' ? colors.accent : colors.textSecondary}
-        />
-        <Text style={[styles.tabLabel, activeTab === 'incidents' && styles.tabLabelActive]}>
-          Recent Incidents
-        </Text>
-      </Pressable>
+  return (
+    <View accessibilityRole="tablist" style={styles.container}>
+      {tabs.map((tab) => {
+        const selected = activeTab === tab.id;
+
+        return (
+          <Pressable
+            key={tab.id}
+            // Without the role and state a screen reader reads these as two
+            // stray labels: nothing says they are tabs, or which one you are
+            // already on.
+            accessibilityRole="tab"
+            accessibilityState={{ selected }}
+            onPress={() => onTabChange(tab.id)}
+            style={[styles.tab, selected && styles.tabActive]}
+          >
+            <Ionicons
+              name={tab.icon}
+              size={16}
+              color={selected ? colors.accent : colors.textSecondary}
+            />
+            <Text style={[styles.tabLabel, selected && styles.tabLabelActive]}>
+              {tab.label}
+            </Text>
+          </Pressable>
+        );
+      })}
     </View>
   );
 };

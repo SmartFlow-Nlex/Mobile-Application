@@ -16,7 +16,7 @@ import { MIN_PASSWORD_LENGTH, useAuth } from '../frontend/auth';
 import AuthField from '../frontend/components/auth/AuthField';
 import { useTheme, useThemedStyles } from '../frontend/theme';
 import type { ThemePalette } from '../frontend/theme';
-import { Typography } from './constants/typography';
+import { Typography } from '../frontend/constants/typography';
 
 export default function SignUpScreen(): React.ReactElement {
   const { colors } = useTheme();
@@ -121,13 +121,14 @@ export default function SignUpScreen(): React.ReactElement {
 
             {error !== null ? (
               <View style={styles.errorBanner}>
-                <Ionicons name="alert-circle-outline" size={16} color={colors.dangerRed} />
+                <Ionicons name="alert-circle-outline" size={16} color={colors.danger} />
                 <Text style={styles.errorBannerText}>{error}</Text>
               </View>
             ) : null}
 
             <Pressable
               accessibilityRole="button"
+              accessibilityState={{ disabled: isSubmitting, busy: isSubmitting }}
               disabled={isSubmitting}
               onPress={() => void handleCreateAccount()}
               style={[styles.primaryButton, isSubmitting && styles.primaryButtonBusy]}
@@ -141,7 +142,7 @@ export default function SignUpScreen(): React.ReactElement {
 
             <View style={styles.footerRow}>
               <Text style={styles.footerText}>Already have an account? </Text>
-              <Pressable hitSlop={6} onPress={handleBackToSignIn}>
+              <Pressable accessibilityRole="link" hitSlop={6} onPress={handleBackToSignIn}>
                 <Text style={styles.linkText}>Sign in</Text>
               </Pressable>
             </View>
@@ -213,7 +214,7 @@ const makeStyles = (c: ThemePalette) =>
       marginBottom: 12,
     },
     errorBannerText: {
-      color: c.dangerRed,
+      color: c.danger,
       fontSize: Typography.fontSize.xs,
       fontWeight: Typography.fontWeight.semibold,
       flex: 1,

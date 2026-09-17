@@ -34,9 +34,13 @@ export interface ThemePalette {
 
   // Status
   success: string;
+  /**
+   * Middle step of the triad. Nothing renders it today - congestion has its
+   * own `status*` scale - but it is what a new "needs attention, not yet
+   * critical" state should reach for rather than inventing a second amber.
+   */
   warning: string;
   danger: string;
-  error: string;
 
   // Neutral surfaces
   /** Page background. */
@@ -73,17 +77,6 @@ export interface ThemePalette {
   /** Text that sits on top of `primary`. */
   textInverse: string;
 
-  // Traffic conditions
-  trafficNormal: string;
-  trafficCongested: string;
-  trafficAccident: string;
-  trafficConstruction: string;
-
-  // Alert severity
-  severityLow: string;
-  severityMedium: string;
-  severityHigh: string;
-
   // Congestion / status pills
   statusSmoothBg: string;
   statusSmoothText: string;
@@ -98,9 +91,7 @@ export interface ThemePalette {
   statusHeavyText: string;
   statusHeavySolid: string;
 
-  // Community
-  communityBlue: string;
-  dangerRed: string;
+  // Icon tints
   /** Tinted background behind settings-row icons. */
   iconTint: string;
   /** Tinted background behind destructive icons. */
@@ -109,11 +100,36 @@ export interface ThemePalette {
   // Chrome
   /** Track colour of the progress bar behind congestion fills. */
   track: string;
-  /** Live indicator dot. */
-  live: string;
   /** Translucent white used on brand surfaces (borders, inset panels). */
   onPrimarySoft: string;
-  onPrimaryMuted: string;
+
+  // Overlays
+  /**
+   * Backdrop behind modals and sheets.
+   *
+   * Has to be a token rather than one literal shared by both themes: a 35%
+   * navy wash reads as "the page is behind glass" on a white ground, but over
+   * the dark page it is nearly invisible and the sheet loses its separation.
+   * Dark therefore gets a much heavier scrim.
+   */
+  scrim: string;
+
+  // Assistant
+  /**
+   * The AI assistant's own accent - the one place the UI steps outside the
+   * navy brand, so a reply is never mistaken for a system message.
+   * Inverts like `accent`: a surface colour on light, a foreground-safe tint
+   * on dark.
+   */
+  ai: string;
+
+  // Controls
+  /** Switch track, off. */
+  switchTrackOff: string;
+  /** Switch track, on. */
+  switchTrackOn: string;
+  /** Switch knob. */
+  switchThumb: string;
 }
 
 export const lightPalette: ThemePalette = {
@@ -128,7 +144,6 @@ export const lightPalette: ThemePalette = {
   success: '#34C759',
   warning: '#FF9500',
   danger: '#FF3B30',
-  error: '#FF3B30',
 
   background: '#F5F7FB',
   surface: '#FFFFFF',
@@ -150,15 +165,6 @@ export const lightPalette: ThemePalette = {
   textTertiary: '#94A3B8',
   textInverse: '#FFFFFF',
 
-  trafficNormal: '#34C759',
-  trafficCongested: '#FF9500',
-  trafficAccident: '#FF3B30',
-  trafficConstruction: '#FFB81C',
-
-  severityLow: '#34C759',
-  severityMedium: '#FF9500',
-  severityHigh: '#FF3B30',
-
   statusSmoothBg: '#D1FAE5',
   statusSmoothText: '#065F46',
   statusSmoothSolid: '#16A34A',
@@ -172,15 +178,19 @@ export const lightPalette: ThemePalette = {
   statusHeavyText: '#991B1B',
   statusHeavySolid: '#DC2626',
 
-  communityBlue: '#1565C0',
-  dangerRed: '#E53E3E',
   iconTint: '#EEF4FF',
   iconTintDanger: '#FEECEC',
 
   track: '#E8EDF6',
-  live: '#4ADE80',
   onPrimarySoft: 'rgba(255,255,255,0.16)',
-  onPrimaryMuted: 'rgba(255,255,255,0.75)',
+
+  scrim: 'rgba(15,23,42,0.36)',
+
+  ai: '#6D45E8',
+
+  switchTrackOff: '#CBD5E1',
+  switchTrackOn: '#93C5FD',
+  switchThumb: '#FFFFFF',
 };
 
 export const darkPalette: ThemePalette = {
@@ -197,7 +207,6 @@ export const darkPalette: ThemePalette = {
   success: '#4ADE80',
   warning: '#FBBF24',
   danger: '#FF6B61',
-  error: '#FF6B61',
 
   background: '#0B1524',
   surface: '#142234',
@@ -219,15 +228,6 @@ export const darkPalette: ThemePalette = {
   textTertiary: '#6C8098',
   textInverse: '#FFFFFF',
 
-  trafficNormal: '#4ADE80',
-  trafficCongested: '#FBBF24',
-  trafficAccident: '#FF6B61',
-  trafficConstruction: '#FCD34D',
-
-  severityLow: '#4ADE80',
-  severityMedium: '#FBBF24',
-  severityHigh: '#FF6B61',
-
   // Pastel pills are blinding on a dark page: use deep tints with bright text.
   statusSmoothBg: '#10331F',
   statusSmoothText: '#6EE7A8',
@@ -242,13 +242,21 @@ export const darkPalette: ThemePalette = {
   statusHeavyText: '#FCA5A5',
   statusHeavySolid: '#EF4444',
 
-  communityBlue: '#5B85C4',
-  dangerRed: '#FF6B61',
   iconTint: '#1C2E48',
   iconTintDanger: '#3A1717',
 
   track: '#22344A',
-  live: '#4ADE80',
   onPrimarySoft: 'rgba(255,255,255,0.14)',
-  onPrimaryMuted: 'rgba(255,255,255,0.72)',
+
+  // Much heavier than the light scrim: a 42% wash over this background is
+  // barely a tint, and the sheet stops reading as a layer above the page.
+  scrim: 'rgba(3,7,14,0.6)',
+
+  // The light theme's #6D45E8 is a surface colour - as text or a small mark
+  // on the dark page it fails contrast, so dark gets a lifted tint.
+  ai: '#A78BFA',
+
+  switchTrackOff: '#2E4059',
+  switchTrackOn: '#2F4E7E',
+  switchThumb: '#E9EFF7',
 };

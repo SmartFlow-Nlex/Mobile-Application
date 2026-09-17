@@ -10,26 +10,9 @@ export interface MlHotspotCardProps {
   hotspot: HotspotSeed;
 }
 
-/** Badge tints resolved from the palette so they invert with the theme. */
-function toneStyles(
-  tone: HotspotSeed['tone'],
-  c: ThemePalette,
-): { background: string; text: string } {
-  switch (tone) {
-    case 'critical':
-      return { background: c.statusHeavyBg, text: c.statusHeavyText };
-    case 'warning':
-      return { background: c.statusHighBg, text: c.statusHighText };
-    case 'caution':
-    default:
-      return { background: c.statusModerateBg, text: c.statusModerateText };
-  }
-}
-
 const MlHotspotCard: React.FC<MlHotspotCardProps> = ({ hotspot }) => {
   const { colors } = useTheme();
   const styles = useThemedStyles(makeStyles);
-  const tone = toneStyles(hotspot.tone, colors);
 
   return (
     <View style={styles.card}>
@@ -37,10 +20,6 @@ const MlHotspotCard: React.FC<MlHotspotCardProps> = ({ hotspot }) => {
         <View style={styles.textGroup}>
           <Text style={styles.name}>{hotspot.name}</Text>
           <Text style={styles.description}>{hotspot.description}</Text>
-        </View>
-
-        <View style={[styles.tag, { backgroundColor: tone.background }]}>
-          <Text style={[styles.tagText, { color: tone.text }]}>{hotspot.tag}</Text>
         </View>
       </View>
 
@@ -94,15 +73,6 @@ const makeStyles = (c: ThemePalette) =>
     fontSize: Typography.fontSize.sm,
     fontWeight: '500',
     lineHeight: 18,
-  },
-  tag: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
-  },
-  tagText: {
-    fontSize: Typography.fontSize.xs,
-    fontWeight: '800',
   },
   statRow: {
     flexDirection: 'row',

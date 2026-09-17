@@ -1,18 +1,34 @@
 import React from 'react';
 import { Stack, useRouter } from 'expo-router';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useTheme, useThemedStyles } from '../frontend/theme';
 import type { ThemePalette } from '../frontend/theme';
-import { Typography } from './constants/typography';
+import { Typography } from '../frontend/constants/typography';
 
 export default function NotificationsScreen(): React.ReactElement {
   const { colors } = useTheme();
   const styles = useThemedStyles(makeStyles);
   const router = useRouter();
+  /**
+   * A deep link or a browser refresh lands here with no history behind it, and
+   * a bare `router.back()` then fails with "GO_BACK was not handled by any
+   * navigator" and traps the user on the screen. Fall back to the dashboard.
+   */
+  const goBack = (): void => {
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace('/(tabs)/dashboard');
+    }
+  };
+
 
   return (
-    <View style={styles.container}>
+    // Same missing top inset as the profile screen: without it the back
+    // button sits under the status bar.
+    <SafeAreaView edges={['top']} style={styles.container}>
       {/*
        * The native header is hidden here (and drawn in-JS instead) because
        * react-native-screens' native header portal does not reliably pass
@@ -27,7 +43,7 @@ export default function NotificationsScreen(): React.ReactElement {
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Go back"
-          onPress={() => router.back()}
+          onPress={goBack}
           style={styles.backButton}
         >
           <Ionicons name="arrow-back" size={20} color={colors.text} />
@@ -39,7 +55,7 @@ export default function NotificationsScreen(): React.ReactElement {
         <Text style={styles.title}>Notifications</Text>
         <Text style={styles.subtitle}>Your latest traffic and account updates will show here.</Text>
       </View>
-    </View>
+    </SafeAreaView>
   );
 }
 

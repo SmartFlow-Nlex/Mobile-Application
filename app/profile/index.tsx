@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import * as Linking from 'expo-linking';
 import { Stack, useRouter } from 'expo-router';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import {
   Alert,
@@ -16,9 +17,10 @@ import EditProfileModal from '../../frontend/components/EditProfileModal';
 import SectionHeader from '../../frontend/components/SectionHeader';
 import SettingsRow from '../../frontend/components/SettingsRow';
 import ThemeModePicker, { themeModeLabel } from '../../frontend/components/ThemeModePicker';
+import { initialsFor } from '../../frontend/components/AppHeader';
 import { useTheme, useThemedStyles } from '../../frontend/theme';
 import type { ThemePalette } from '../../frontend/theme';
-import { Typography } from '../constants/typography';
+import { Typography } from '../../frontend/constants/typography';
 import { useUserProfile } from '../../frontend/hooks/useUserProfile';
 import { useAuth } from '../../frontend/auth';
 
@@ -27,6 +29,19 @@ export default function ProfileScreen(): React.ReactElement {
   const styles = useThemedStyles(makeStyles);
   const router = useRouter();
   const { session, signOut } = useAuth();
+  /**
+   * A deep link or a browser refresh lands here with no history behind it, and
+   * a bare `router.back()` then fails with "GO_BACK was not handled by any
+   * navigator" and traps the user on the screen. Fall back to the dashboard.
+   */
+  const goBack = (): void => {
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace('/(tabs)/dashboard');
+    }
+  };
+
 
   // The profile endpoint has no notion of the signed-in account yet, so the
   // session is what the screen falls back to instead of a stock placeholder.
@@ -52,16 +67,13 @@ export default function ProfileScreen(): React.ReactElement {
     language: 'English',
   });
 
-  const initials = useMemo(
-    () =>
-      user.displayName
-        .split(' ')
-        .filter(Boolean)
-        .slice(0, 2)
-        .map((part) => part[0]?.toUpperCase() ?? '')
-        .join('') || 'NT',
-    [user.displayName]
-  );
+  /*
+   * Shared with the avatar in every tab's header - this screen used to take
+   * the first TWO words ("Kiarra Jem Dela Cruz" -> KJ) while the header took
+   * first and last (-> KC), so the same account wore two different monograms
+   * depending on which one you were looking at.
+   */
+  const initials = useMemo(() => initialsFor(user.displayName), [user.displayName]);
 
   const handleSaveProfile = async (updated: UserProfile): Promise<void> => {
     await patchUser(updated);
@@ -87,15 +99,32 @@ export default function ProfileScreen(): React.ReactElement {
   };
 
   return (
-    <View style={styles.screen}>
+    /*
+     * edges={['top']} is the fix for an unpressable back button.
+     *
+     * This screen was a plain View with 16pt of padding, so on a phone the
+     * 40pt button sat inside the status bar / Dynamic Island and the top of it
+     * could not be tapped at all. Every tab screen already insets its top; this
+     * Stack route was missed.
+     */
+    <SafeAreaView edges={['top']} style={styles.screen}>
       <Stack.Screen options={{ headerShown: false }} />
 
+      {/* Outside the ScrollView, so the way back never scrolls off. */}
+      <View style={styles.topBar}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+          hitSlop={8}
+          onPress={goBack}
+          style={({ pressed }) => [styles.backButton, pressed && styles.backButtonPressed]}
+        >
+          <Ionicons name="arrow-back" size={20} color={colors.text} />
+        </Pressable>
+        <Text style={styles.topBarTitle}>Profile</Text>
+      </View>
+
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <View style={styles.topBar}>
-          <Pressable onPress={() => router.back()} style={styles.backButton}>
-            <Ionicons name="arrow-back" size={20} color={colors.text} />
-          </Pressable>
-        </View>
 
         <View style={styles.userCard}>
           {user.avatarUri ? (
@@ -187,7 +216,7 @@ export default function ProfileScreen(): React.ReactElement {
         visible={isThemePickerVisible}
         onClose={() => setIsThemePickerVisible(false)}
       />
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -203,7 +232,18 @@ const makeStyles = (c: ThemePalette) =>
     paddingBottom: 36,
   },
   topBar: {
-    marginBottom: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingTop: 6,
+    paddingBottom: 12,
+  },
+  topBarTitle: {
+    color: c.text,
+    fontSize: 22,
+    fontWeight: '800',
+    letterSpacing: -0.2,
   },
   backButton: {
     width: 40,
@@ -214,6 +254,9 @@ const makeStyles = (c: ThemePalette) =>
     backgroundColor: c.surface,
     borderWidth: 1,
     borderColor: c.border,
+  },
+  backButtonPressed: {
+    opacity: 0.6,
   },
   userCard: {
     flexDirection: 'row',

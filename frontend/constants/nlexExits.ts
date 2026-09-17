@@ -1,5 +1,16 @@
-export type NlexDirection = 'northbound' | 'southbound';
-
+/**
+ * Full NLEX exit list, kept as reference data.
+ *
+ * Nothing imports this. The app runs on `nlexSegments.ts`, which carries a
+ * curated subset under shortened display names ("Sta. Ines", "CDV / Ph.
+ * Arena") chosen to fit a phone. This file is the longer list it was cut
+ * from - the minor exits (Lawang Bato, Lingunan, Libis Baesa, Novaliches,
+ * Pandayan, Libtong, F. Raymundo) live only here, so it is worth keeping
+ * even though it is unwired.
+ *
+ * If you wire it up, add to `nlexSegments.ts` rather than importing both:
+ * one source of exit names is the point.
+ */
 export interface NlexExit {
   name: string;
   city: string;

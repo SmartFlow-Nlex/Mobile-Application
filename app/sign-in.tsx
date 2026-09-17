@@ -18,7 +18,7 @@ import { useAuth } from '../frontend/auth';
 import AuthField from '../frontend/components/auth/AuthField';
 import { useTheme, useThemedStyles } from '../frontend/theme';
 import type { ThemePalette } from '../frontend/theme';
-import { Typography } from './constants/typography';
+import { Typography } from '../frontend/constants/typography';
 
 export default function SignInScreen(): React.ReactElement {
   const { colors } = useTheme();
@@ -112,7 +112,7 @@ export default function SignInScreen(): React.ReactElement {
 
             {error !== null ? (
               <View style={styles.errorBanner}>
-                <Ionicons name="alert-circle-outline" size={16} color={colors.dangerRed} />
+                <Ionicons name="alert-circle-outline" size={16} color={colors.danger} />
                 <Text style={styles.errorBannerText}>{error}</Text>
               </View>
             ) : null}
@@ -133,13 +133,14 @@ export default function SignInScreen(): React.ReactElement {
                 <Text style={styles.rememberText}>Remember me</Text>
               </Pressable>
 
-              <Pressable hitSlop={6} onPress={handleForgotPassword}>
+              <Pressable accessibilityRole="link" hitSlop={6} onPress={handleForgotPassword}>
                 <Text style={styles.linkText}>Forgot password?</Text>
               </Pressable>
             </View>
 
             <Pressable
               accessibilityRole="button"
+              accessibilityState={{ disabled: isSubmitting, busy: isSubmitting }}
               disabled={isSubmitting}
               onPress={() => void handleSignIn()}
               style={[styles.primaryButton, isSubmitting && styles.primaryButtonBusy]}
@@ -153,7 +154,7 @@ export default function SignInScreen(): React.ReactElement {
 
             <View style={styles.footerRow}>
               <Text style={styles.footerText}>Don&apos;t have an account? </Text>
-              <Pressable hitSlop={6} onPress={() => router.push('/sign-up')}>
+              <Pressable accessibilityRole="link" hitSlop={6} onPress={() => router.push('/sign-up')}>
                 <Text style={styles.linkText}>Create account</Text>
               </Pressable>
             </View>
@@ -244,7 +245,7 @@ const makeStyles = (c: ThemePalette) =>
       marginBottom: 12,
     },
     errorBannerText: {
-      color: c.dangerRed,
+      color: c.danger,
       fontSize: Typography.fontSize.xs,
       fontWeight: Typography.fontWeight.semibold,
       flex: 1,

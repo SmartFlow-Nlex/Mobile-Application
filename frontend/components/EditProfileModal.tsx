@@ -3,7 +3,6 @@ import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import {
   Image,
-  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -13,6 +12,7 @@ import {
 } from 'react-native';
 import { UserProfile } from '@smartflow/shared';
 import { useTheme, useThemedStyles } from '../theme';
+import SheetModal from './SheetModal';
 import type { ThemePalette } from '../theme';
 import { Typography } from '../constants/typography';
 
@@ -66,20 +66,28 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
     .join('');
 
   return (
-    <Modal animationType="slide" transparent visible={visible} onRequestClose={onClose}>
-      <View style={styles.backdrop}>
-        <Pressable style={styles.scrim} onPress={onClose} />
-        <View style={styles.sheet}>
+    <SheetModal visible={visible} onClose={onClose}>
+      <View style={styles.sheet}>
           <View style={styles.handle} />
           <View style={styles.header}>
             <Text style={styles.title}>Edit Profile</Text>
-            <Pressable onPress={onClose} style={styles.closeButton}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Close"
+              onPress={onClose}
+              style={styles.closeButton}
+            >
               <Ionicons name="close" size={20} color={colors.text} />
             </Pressable>
           </View>
 
           <ScrollView showsVerticalScrollIndicator={false}>
-            <Pressable onPress={handlePickImage} style={styles.avatarSection}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Change profile photo"
+              onPress={handlePickImage}
+              style={styles.avatarSection}
+            >
               {draft.avatarUri ? (
                 <Image source={{ uri: draft.avatarUri }} style={styles.avatar} />
               ) : (
@@ -130,15 +138,15 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
             </View>
 
             <Pressable
+              accessibilityRole="button"
               onPress={() => onSave(draft)}
               style={({ pressed }) => [styles.saveButton, pressed && styles.saveButtonPressed]}
             >
               <Text style={styles.saveButtonText}>Save Changes</Text>
             </Pressable>
           </ScrollView>
-        </View>
       </View>
-    </Modal>
+    </SheetModal>
   );
 };
 
@@ -146,14 +154,6 @@ export default EditProfileModal;
 
 const makeStyles = (c: ThemePalette) =>
   StyleSheet.create({
-  backdrop: {
-    flex: 1,
-    justifyContent: 'flex-end',
-    backgroundColor: 'rgba(15, 23, 42, 0.3)',
-  },
-  scrim: {
-    flex: 1,
-  },
   sheet: {
     backgroundColor: c.surface,
     borderTopLeftRadius: 28,

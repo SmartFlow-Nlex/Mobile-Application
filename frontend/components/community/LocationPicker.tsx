@@ -227,7 +227,7 @@ const makeStyles = (c: ThemePalette) =>
       marginTop: 4,
     },
     required: {
-      color: c.dangerRed,
+      color: c.danger,
       fontSize: Typography.fontSize.sm,
       fontWeight: Typography.fontWeight.bold,
     },

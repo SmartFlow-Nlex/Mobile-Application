@@ -1,3 +1,4 @@
+import type { AssistantToolName } from '@smartflow/shared';
 import { ASSISTANT_TIMEOUT_MS, BACKEND_API_BASE_URL } from '../config/api';
 
 /**
@@ -17,6 +18,42 @@ export interface ChatMessage {
   role: ChatRole;
   text: string;
   at: number;
+  /**
+   * Data tools the model consulted for this reply, on assistant messages.
+   * Only ever set locally - `toWireHistory` strips it, so it never goes back
+   * to the server as part of the conversation.
+   */
+  toolsUsed?: string[];
+}
+
+/**
+ * Tool name -> what to tell the user it looked at.
+ *
+ * The backend already returned `toolsUsed` and the field was documented as
+ * being "so the UI can show it was grounded", but nothing rendered it. An
+ * answer about a road is worth more when you can see it checked the road.
+ *
+ * Keyed by `AssistantToolName` rather than `string`, so adding a tool on the
+ * server without a label here fails the build instead of printing the raw
+ * function name into the transcript.
+ */
+const labels: Record<AssistantToolName, string> = {
+  // Reads ONE named exit in one direction - not the whole corridor, which is
+  // what the old "Live corridor feed" label claimed.
+  get_corridor_status: 'Live exit reading',
+  get_corridor_overview: 'Live corridor snapshot',
+  list_exits: 'Exit directory',
+};
+
+/**
+ * What to show on the provenance chip for a tool the server reported.
+ *
+ * Falls back to the de-underscored name because `toolsUsed` arrives as plain
+ * strings off the wire: a server running ahead of the app can still name a
+ * tool this build has never heard of, and a rough label beats an empty chip.
+ */
+export function toolLabel(tool: string): string {
+  return labels[tool as AssistantToolName] ?? tool.replace(/_/g, ' ');
 }
 
 export interface AssistantReply {

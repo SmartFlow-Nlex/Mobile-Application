@@ -1,7 +1,8 @@
 import React from 'react';
-import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme, useThemedStyles } from '../theme';
+import SheetModal from './SheetModal';
 import type { ThemeMode, ThemePalette } from '../theme';
 import { Typography } from '../constants/typography';
 
@@ -39,9 +40,10 @@ const ThemeModePicker: React.FC<ThemeModePickerProps> = ({ visible, onClose }) =
   };
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable style={styles.backdrop} onPress={onClose}>
-        <Pressable style={styles.sheet} onPress={(event) => event.stopPropagation()}>
+    <SheetModal visible={visible} onClose={onClose}>
+      {/* A plain View: SheetModal's scrim sits behind the sheet rather than
+          wrapping it, so there is no parent press to stop. */}
+      <View style={styles.sheet}>
           <View style={styles.grabber} />
 
           <View style={styles.header}>
@@ -90,9 +92,8 @@ const ThemeModePicker: React.FC<ThemeModePickerProps> = ({ visible, onClose }) =
               </Pressable>
             );
           })}
-        </Pressable>
-      </Pressable>
-    </Modal>
+      </View>
+    </SheetModal>
   );
 };
 
@@ -100,11 +101,6 @@ export default ThemeModePicker;
 
 const makeStyles = (c: ThemePalette) =>
   StyleSheet.create({
-    backdrop: {
-      flex: 1,
-      backgroundColor: 'rgba(0,0,0,0.5)',
-      justifyContent: 'flex-end',
-    },
     sheet: {
       backgroundColor: c.surface,
       borderTopLeftRadius: 24,

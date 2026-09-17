@@ -18,7 +18,13 @@ export function formatTime(date: Date): string {
   return `${hour12}:${pad(date.getMinutes())} ${suffix}`;
 }
 
-/** "10:07:41 PM" */
+/**
+ * "10:07:41 PM"
+ *
+ * For the one readout that runs on a seconds-accurate clock - the dashboard
+ * status card, which owns its own 1s tick. Anything driven by a coarser clock
+ * wants `formatTime`, or the seconds sit still and then jump.
+ */
 export function formatClock(date: Date): string {
   const hours = date.getHours();
   const suffix = hours >= 12 ? 'PM' : 'AM';
@@ -42,6 +48,44 @@ export function formatEventDateTime(date: Date): string {
 }
 
 const weekdayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+const weekdayLongNames = [
+  'Sunday',
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+];
+
+const monthLongNames = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+];
+
+/**
+ * "Thursday, 18 September"
+ *
+ * For headline timestamps, where `9/18/2026` reads like a filename. No year:
+ * these are horizons of at most a couple of days, so the year is never the
+ * thing in doubt, and dropping it keeps the line from wrapping on a phone.
+ */
+export function formatLongDate(date: Date): string {
+  const weekday = weekdayLongNames[date.getDay()] ?? '';
+  const month = monthLongNames[date.getMonth()] ?? '';
+  return `${weekday}, ${date.getDate()} ${month}`;
+}
 
 /** "Tue" */
 export function formatWeekday(date: Date): string {
@@ -100,9 +144,16 @@ export function describeHourOffset(hours: number): string {
   return `In ${hours} hours`;
 }
 
-/** Returns `base` advanced by whole hours, with seconds zeroed for stability. */
+/**
+ * Returns `base` advanced by whole hours, with seconds zeroed.
+ *
+ * The seconds are dropped because every caller renders the result at minute
+ * precision off a clock that ticks on its own schedule. Keeping them would
+ * make "in 3 hours" land on a different second each tick - the same horizon
+ * described two ways depending on when you happened to look.
+ */
 export function addHours(base: Date, hours: number): Date {
   const next = new Date(base);
-  next.setHours(next.getHours() + hours);
+  next.setHours(next.getHours() + hours, next.getMinutes(), 0, 0);
   return next;
 }

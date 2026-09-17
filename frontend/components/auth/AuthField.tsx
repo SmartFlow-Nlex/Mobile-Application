@@ -65,7 +65,7 @@ const AuthField: React.FC<AuthFieldProps> = ({
         <Ionicons
           name={icon}
           size={17}
-          color={hasError ? colors.dangerRed : colors.textTertiary}
+          color={hasError ? colors.danger : colors.textTertiary}
         />
 
         <TextInput
@@ -132,7 +132,7 @@ const makeStyles = (c: ThemePalette) =>
       borderColor: c.primarySoftBorder,
     },
     fieldError: {
-      borderColor: c.dangerRed,
+      borderColor: c.danger,
     },
     input: {
       flex: 1,
@@ -143,7 +143,7 @@ const makeStyles = (c: ThemePalette) =>
       outlineStyle: 'none',
     } as object,
     errorText: {
-      color: c.dangerRed,
+      color: c.danger,
       fontSize: Typography.fontSize.xs,
       fontWeight: Typography.fontWeight.medium,
       marginTop: 6,

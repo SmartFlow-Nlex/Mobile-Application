@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme, useThemedStyles } from '../../theme';
 import type { ThemePalette } from '../../theme';
@@ -14,8 +14,12 @@ import {
 } from '../../constants/nlexSegments';
 import { SegmentPrediction, congestionLevelLabel } from '../../lib/trafficModel';
 import { EventForecastSeed } from '../../constants/dashboardData';
+import { formatLongDate, formatTime } from '../../lib/datetime';
 import Dropdown, { DropdownOption } from '../Dropdown';
 import { toneFor } from './severity';
+
+/** Hours ahead the chips offer. No zero - "Reset" is the way back to now. */
+export const forecastPresets = [1, 3, 6, 12, 24] as const;
 
 export interface SegmentForecastCardProps {
   direction: NlexDirectionId;
@@ -26,10 +30,21 @@ export interface SegmentForecastCardProps {
   onChangeTo: (id: string) => void;
   /** Null until both endpoints are chosen. */
   prediction: SegmentPrediction | null;
+  /** The same stretch as it is right now, for the "vs now" line. */
+  predictionNow: SegmentPrediction | null;
   /** Event pushing extra load onto this segment at the forecast time, if any. */
   eventDriver: EventForecastSeed | null;
   /** e.g. "Right now" or "In 3 hours". */
   horizonLabel: string;
+  /** Base time the horizon is measured from. */
+  now: Date;
+  /** The chosen horizon, and the setter behind the chips. */
+  offsetHours: number;
+  onChangeOffset: (hours: number) => void;
+  /** Drops the route and the horizon, back to an empty card. */
+  onClear: () => void;
+  /** The forecast timestamp, already formatted by the caller's clock. */
+  forecastAt: Date;
 }
 
 const directionIcon: Record<NlexDirectionId, keyof typeof Ionicons.glyphMap> = {
@@ -45,6 +60,17 @@ function toOptions(exits: ReturnType<typeof exitsInTravelOrder>): DropdownOption
   }));
 }
 
+/**
+ * Route, time, forecast - one card, in the order the question is actually asked.
+ *
+ * This used to be two sections with two headings: a "Traffic Forecast" card
+ * holding the hour chips, then a separate "Segment Status" card holding the
+ * route pickers and the result. The dependency ran backwards through them -
+ * the chips were locked until a route was chosen in the card BELOW them, so
+ * you scrolled past a dead control, set the route, then scrolled back up to
+ * use it. They are one question ("how bad is this stretch at this hour"), so
+ * they are now one card with the steps in dependency order.
+ */
 const SegmentForecastCard: React.FC<SegmentForecastCardProps> = ({
   direction,
   fromId,
@@ -53,8 +79,13 @@ const SegmentForecastCard: React.FC<SegmentForecastCardProps> = ({
   onChangeFrom,
   onChangeTo,
   prediction,
+  predictionNow,
   eventDriver,
   horizonLabel,
+  offsetHours,
+  onChangeOffset,
+  onClear,
+  forecastAt,
 }) => {
   const { colors } = useTheme();
   const styles = useThemedStyles(makeStyles);
@@ -79,9 +110,29 @@ const SegmentForecastCard: React.FC<SegmentForecastCardProps> = ({
 
   const from = getExit(fromId);
   const to = getExit(toId);
+  const routeReady = prediction !== null && from !== null && to !== null;
 
   return (
     <View style={styles.card}>
+      <StepLabel
+        index={1}
+        title="Route"
+        action={
+          fromId === null && toId === null ? undefined : (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Clear the route"
+              hitSlop={8}
+              onPress={onClear}
+              style={({ pressed }) => [styles.clearPill, pressed && styles.pressedDim]}
+            >
+              <Ionicons name="close" size={12} color={colors.textSecondary} />
+              <Text style={styles.clearPillText}>Clear</Text>
+            </Pressable>
+          )
+        }
+      />
+
       <Dropdown
         label="Direction"
         placeholder="Select direction"
@@ -115,7 +166,57 @@ const SegmentForecastCard: React.FC<SegmentForecastCardProps> = ({
         }
       />
 
-      {prediction === null || from === null || to === null ? (
+      <StepLabel index={2} title="When" locked={!routeReady} />
+
+      {routeReady ? (
+        <>
+          <View style={styles.whenRow}>
+            <Text style={styles.whenStamp}>
+              {formatLongDate(forecastAt)} · {formatTime(forecastAt)}
+            </Text>
+            {offsetHours === 0 ? null : (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Back to now"
+                hitSlop={8}
+                onPress={() => onChangeOffset(0)}
+                style={({ pressed }) => [styles.resetPill, pressed && styles.pressedDim]}
+              >
+                <Text style={styles.resetPillText}>Now</Text>
+              </Pressable>
+            )}
+          </View>
+
+          <View style={styles.chipRow}>
+            {forecastPresets.map((hours) => {
+              const active = hours === offsetHours;
+              return (
+                <Pressable
+                  key={hours}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: active }}
+                  onPress={() => onChangeOffset(hours)}
+                  style={({ pressed }) => [
+                    styles.chip,
+                    active && styles.chipActive,
+                    pressed && !active && styles.pressedDim,
+                  ]}
+                >
+                  <Text style={[styles.chipText, active && styles.chipTextActive]}>
+                    +{hours}h
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </>
+      ) : (
+        <Text style={styles.stepHint}>Choose a route first.</Text>
+      )}
+
+      <StepLabel index={3} title="Forecast" locked={!routeReady} />
+
+      {!routeReady ? (
         <View style={styles.emptyState}>
           <Ionicons name="navigate-circle-outline" size={22} color={colors.textTertiary} />
           <Text style={styles.emptyStateText}>
@@ -129,10 +230,37 @@ const SegmentForecastCard: React.FC<SegmentForecastCardProps> = ({
           toName={to.name}
           directionLabel={getDirection(direction).label}
           prediction={prediction}
+          predictionNow={predictionNow}
           eventDriver={eventDriver}
           horizonLabel={horizonLabel}
+          offsetHours={offsetHours}
         />
       )}
+    </View>
+  );
+};
+
+interface StepLabelProps {
+  index: number;
+  title: string;
+  locked?: boolean;
+  /** Trailing control, e.g. Clear on the route step. */
+  action?: React.ReactNode;
+}
+
+/** A numbered rule between the card's three steps, so the order is explicit. */
+const StepLabel: React.FC<StepLabelProps> = ({ index, title, locked = false, action }) => {
+  const styles = useThemedStyles(makeStyles);
+  return (
+    <View style={styles.step}>
+      <View style={[styles.stepIndex, locked && styles.stepIndexLocked]}>
+        <Text style={[styles.stepIndexText, locked && styles.stepIndexTextLocked]}>
+          {index}
+        </Text>
+      </View>
+      <Text style={[styles.stepTitle, locked && styles.stepTitleLocked]}>{title}</Text>
+      <View style={styles.stepRule} />
+      {action}
     </View>
   );
 };
@@ -142,8 +270,10 @@ interface CongestionResultProps {
   toName: string;
   directionLabel: string;
   prediction: SegmentPrediction;
+  predictionNow: SegmentPrediction | null;
   eventDriver: EventForecastSeed | null;
   horizonLabel: string;
+  offsetHours: number;
 }
 
 const CongestionResult: React.FC<CongestionResultProps> = ({
@@ -151,8 +281,10 @@ const CongestionResult: React.FC<CongestionResultProps> = ({
   toName,
   directionLabel,
   prediction,
+  predictionNow,
   eventDriver,
   horizonLabel,
+  offsetHours,
 }) => {
   const { colors } = useTheme();
   const styles = useThemedStyles(makeStyles);
@@ -175,9 +307,7 @@ const CongestionResult: React.FC<CongestionResultProps> = ({
         </View>
       </View>
 
-      <Text style={styles.resultRoute}>
-        {fromName} to {toName} ({directionLabel})
-      </Text>
+      <Text style={styles.resultRoute}>{directionLabel}</Text>
 
       <View style={styles.probabilityRow}>
         <Text style={styles.probabilityLabel}>Congestion Probability</Text>
@@ -213,6 +343,33 @@ const CongestionResult: React.FC<CongestionResultProps> = ({
         </Text>
       </View>
 
+      {/*
+        The one thing the stats above cannot say: whether the hour you picked
+        is better or worse than setting off now, on this same stretch.
+      */}
+      {offsetHours > 0 && predictionNow !== null ? (
+        <View style={styles.driverRow}>
+          <Ionicons
+            name={
+              prediction.delayMinutes > predictionNow.delayMinutes
+                ? 'trending-up'
+                : prediction.delayMinutes < predictionNow.delayMinutes
+                  ? 'trending-down'
+                  : 'remove'
+            }
+            size={13}
+            color={colors.textSecondary}
+          />
+          <Text style={styles.driverText}>
+            {prediction.delayMinutes === predictionNow.delayMinutes
+              ? 'About the same as leaving now'
+              : `${Math.abs(prediction.delayMinutes - predictionNow.delayMinutes)} min ${
+                  prediction.delayMinutes > predictionNow.delayMinutes ? 'worse' : 'better'
+                } than leaving now`}
+          </Text>
+        </View>
+      ) : null}
+
       {eventDriver !== null ? (
         <View style={styles.eventNote}>
           <Ionicons name="calendar" size={13} color={colors.accent} />
@@ -246,6 +403,124 @@ export default SegmentForecastCard;
 
 const makeStyles = (c: ThemePalette) =>
   StyleSheet.create({
+    pressedDim: {
+      opacity: 0.6,
+    },
+    /* A numbered rule, so the three steps read in order. */
+    step: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      marginBottom: 12,
+    },
+    stepIndex: {
+      width: 20,
+      height: 20,
+      borderRadius: 10,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: c.primary,
+    },
+    stepIndexLocked: {
+      backgroundColor: c.surfaceMuted,
+    },
+    stepIndexText: {
+      color: c.textInverse,
+      fontSize: 10,
+      fontWeight: '800',
+    },
+    stepIndexTextLocked: {
+      color: c.textTertiary,
+    },
+    stepTitle: {
+      color: c.text,
+      fontSize: Typography.fontSize.sm,
+      fontWeight: '800',
+      letterSpacing: 0.3,
+      textTransform: 'uppercase',
+    },
+    stepTitleLocked: {
+      color: c.textTertiary,
+    },
+    stepRule: {
+      flex: 1,
+      height: 1,
+      backgroundColor: c.hairline,
+    },
+    stepHint: {
+      color: c.textTertiary,
+      fontSize: Typography.fontSize.xs,
+      fontWeight: '600',
+      marginBottom: 18,
+    },
+    whenRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      marginBottom: 10,
+    },
+    whenStamp: {
+      flex: 1,
+      color: c.text,
+      fontSize: Typography.fontSize.sm,
+      fontWeight: '700',
+    },
+    clearPill: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      paddingHorizontal: 9,
+      paddingVertical: 4,
+      borderRadius: 999,
+      backgroundColor: c.surfaceMuted,
+      borderWidth: 1,
+      borderColor: c.border,
+    },
+    clearPillText: {
+      color: c.textSecondary,
+      fontSize: Typography.fontSize.xs,
+      fontWeight: '700',
+    },
+    resetPill: {
+      paddingHorizontal: 11,
+      paddingVertical: 5,
+      borderRadius: 999,
+      backgroundColor: c.primarySoft,
+      borderWidth: 1,
+      borderColor: c.primarySoftBorder,
+    },
+    resetPillText: {
+      color: c.accent,
+      fontSize: Typography.fontSize.xs,
+      fontWeight: '800',
+    },
+    chipRow: {
+      flexDirection: 'row',
+      gap: 6,
+      marginBottom: 18,
+    },
+    chip: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingVertical: 9,
+      borderRadius: 10,
+      backgroundColor: c.surfaceMuted,
+      borderWidth: 1,
+      borderColor: c.border,
+    },
+    chipActive: {
+      backgroundColor: c.primary,
+      borderColor: c.primary,
+    },
+    chipText: {
+      color: c.textSecondary,
+      fontSize: Typography.fontSize.xs,
+      fontWeight: '700',
+    },
+    chipTextActive: {
+      color: c.textInverse,
+    },
     card: {
       backgroundColor: c.surface,
       borderRadius: 18,
