@@ -1,10 +1,3 @@
-import {
-  corridorStatusFromFeed,
-  type ExitStatus,
-  type FeatureCollection,
-  type NlexExit,
-} from '../corridor/deriveStatus';
-
 /**
  * Live NLEX corridor data, read from the dashboard/intelligence system.
  *
@@ -16,21 +9,7 @@ import {
 
 const CORRIDOR_API_BASE_URL =
   process.env.CORRIDOR_API_URL ?? 'http://localhost:4000';
-/*
- * The dashboard's own live feed, plus the exit roster that keys it.
- *
- * Deliberately NOT /api/dashboard/corridor-status/full any more. That endpoint
- * aggregates in SQL, and the dashboard stopped rendering from it because the
- * two pipelines disagreed - the SQL side counted jams near the corridor that
- * the map had discarded for not lying on it. Reading it left this app showing
- * different numbers from the dashboard for the same moment.
- *
- * These two are what the dashboard itself reads. The per-exit status is then
- * derived here with the dashboard's own function, so both agree by
- * construction rather than by coincidence.
- */
-const REALTIME_PATH = '/api/map-comparison/real-time';
-const EXITS_PATH = '/api/map-comparison/exits';
+const CORRIDOR_STATUS_PATH = '/api/dashboard/corridor-status/full';
 
 /** A dead host never refuses, it just stops answering. Fail fast instead. */
 const REQUEST_TIMEOUT_MS = 8000;
@@ -81,117 +60,6 @@ export type CorridorResult =
   | { available: true; data: CorridorStatusData }
   | { available: false; reason: string };
 
-/** What /api/map-comparison/real-time returns: GeoJSON plus its own freshness. */
-interface RealtimeFeed extends FeatureCollection {
-  feed?: {
-    newestAt?: string | null;
-    ageMinutes?: number | null;
-    stale?: boolean;
-  };
-}
-
-/**
- * The exit roster, however the dashboard wrapped it.
- *
- * It has served both a bare array and a {success, data} envelope at different
- * times, so both are accepted rather than betting on one.
- */
-function readExitList(payload: unknown): NlexExit[] {
-  const rows = Array.isArray(payload)
-    ? payload
-    : Array.isArray((payload as { data?: unknown })?.data)
-      ? ((payload as { data: unknown[] }).data)
-      : [];
-
-  return rows.filter((row): row is NlexExit => {
-    const exit = row as Partial<NlexExit>;
-    return (
-      typeof exit.exit_name === 'string' &&
-      typeof exit.latitude === 'number' &&
-      typeof exit.longitude === 'number' &&
-      typeof exit.km === 'number'
-    );
-  });
-}
-
-/** An exit-direction the feed said nothing about: no jams means clear. */
-const clearStatus = (hasRamp: boolean): CorridorDirectionStatus => ({
-  status: 'clear',
-  level: null,
-  speedKmh: null,
-  jamCount: 0,
-  observedAt: null,
-  hasRamp,
-});
-
-/**
- * Turn the dashboard's feed into the shape this app has always consumed.
- *
- * Keeping the shape identical is the point: the assistant's tools and the Map
- * screen both read it, and neither should have to care that the derivation
- * moved. Only the numbers change - to the dashboard's.
- */
-function buildCorridorStatus(feed: RealtimeFeed, exits: NlexExit[]): CorridorStatusData {
-  const derived = corridorStatusFromFeed(feed, exits);
-
-  const byExit = new Map<string, { NB?: ExitStatus; SB?: ExitStatus }>();
-  for (const row of derived) {
-    const entry = byExit.get(row.exit) ?? {};
-    entry[row.direction] = row;
-    byExit.set(row.exit, entry);
-  }
-
-  const toDirection = (
-    row: ExitStatus | undefined,
-    hasRamp: boolean,
-  ): CorridorDirectionStatus =>
-    row === undefined
-      ? clearStatus(hasRamp)
-      : {
-          status: row.status,
-          level: row.level,
-          speedKmh: row.speedKmh,
-          jamCount: row.jamCount,
-          observedAt: row.observedAt,
-          hasRamp,
-        };
-
-  const ordered = [...exits].sort((a, b) => a.km - b.km);
-  const rows: CorridorExit[] = ordered.map((exit) => {
-    const found = byExit.get(exit.exit_name) ?? {};
-    return {
-      exit_id: exit.exit_id,
-      exit_name: exit.exit_name,
-      // The dashboard's roster carries no separate display name.
-      display_name: exit.exit_name,
-      km: exit.km,
-      directions: {
-        NB: toDirection(found.NB, exit.nb_entry === true || exit.nb_exit === true),
-        SB: toDirection(found.SB, exit.sb_entry === true || exit.sb_exit === true),
-      },
-    };
-  });
-
-  const counts: CorridorCounts = { congested: 0, slow: 0, clear: 0 };
-  for (const row of rows) {
-    for (const key of ['NB', 'SB'] as const) {
-      counts[row.directions[key].status] += 1;
-    }
-  }
-
-  return {
-    generatedAt: new Date().toISOString(),
-    feed: {
-      newestAt: feed.feed?.newestAt ?? null,
-      ageMinutes: feed.feed?.ageMinutes ?? null,
-      // No freshness block means we cannot vouch for the data's age.
-      stale: feed.feed?.stale ?? true,
-    },
-    counts,
-    exits: rows,
-  };
-}
-
 let cached: { at: number; result: CorridorResult } | null = null;
 
 export async function getCorridorStatus(): Promise<CorridorResult> {
@@ -199,39 +67,30 @@ export async function getCorridorStatus(): Promise<CorridorResult> {
     return cached.result;
   }
 
+  const url = `${CORRIDOR_API_BASE_URL}${CORRIDOR_STATUS_PATH}`;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
   let result: CorridorResult;
   try {
-    // Both in flight together: the roster is small and rarely changes, but it
-    // keys the derivation, so there is nothing to show without it either.
-    const [feedResponse, exitsResponse] = await Promise.all([
-      fetch(`${CORRIDOR_API_BASE_URL}${REALTIME_PATH}`, { signal: controller.signal }),
-      fetch(`${CORRIDOR_API_BASE_URL}${EXITS_PATH}`, { signal: controller.signal }),
-    ]);
-
-    if (!feedResponse.ok) {
+    const response = await fetch(url, { signal: controller.signal });
+    if (!response.ok) {
       result = {
         available: false,
-        reason: `The traffic data service answered with HTTP ${feedResponse.status}.`,
-      };
-    } else if (!exitsResponse.ok) {
-      result = {
-        available: false,
-        reason: `The exit list service answered with HTTP ${exitsResponse.status}.`,
+        reason: `The traffic data service answered with HTTP ${response.status}.`,
       };
     } else {
-      const feed = (await feedResponse.json()) as RealtimeFeed;
-      const exits = readExitList(await exitsResponse.json());
-
+      const payload = (await response.json()) as {
+        success?: boolean;
+        data?: CorridorStatusData;
+      };
       result =
-        exits.length === 0
-          ? {
+        payload.success === true && payload.data !== undefined
+          ? { available: true, data: payload.data }
+          : {
               available: false,
-              reason: 'The traffic data service returned no NLEX exits.',
-            }
-          : { available: true, data: buildCorridorStatus(feed, exits) };
+              reason: 'The traffic data service returned an unexpected response.',
+            };
     }
   } catch {
     result = {

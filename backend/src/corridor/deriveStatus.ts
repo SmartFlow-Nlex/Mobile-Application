@@ -13,8 +13,15 @@
  * that older pipeline, so it could show different numbers from the dashboard
  * for the same moment.
  *
- * This runs the dashboard's derivation instead, on the same feed, so the two
- * agree in principle rather than by luck.
+ * NOT CURRENTLY WIRED UP. The deployed dashboard still renders from the SQL
+ * endpoint, not from this derivation - its own footnote still reads "direction
+ * from jam bearing", which is the older rule. Running this instead made the app
+ * disagree with the dashboard people actually look at, and it is wrong at
+ * Balintawak besides: the toll plaza is wider than the 200m corridor tolerance,
+ * so a real level-4 jam there is discarded as off-corridor.
+ *
+ * Kept ready for the day the dashboard team deploys their newer derivation.
+ * Until then services/corridor.ts reads their corridor-status endpoint directly.
  */
 
 import {
