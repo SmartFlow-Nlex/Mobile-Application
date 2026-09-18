@@ -45,10 +45,8 @@ services:
       # dashboard. The LLM key must never be committed.
       - key: QWEN_API_KEY
         sync: false
-      # The dashboard/Waze system is deployed at the end of development. Until
-      # then this points nowhere reachable, and that is handled: the assistant
-      # reports the data as unavailable rather than inventing traffic. Change it
-      # in Render's dashboard when the dashboard backend goes live - no code
-      # change and no redeploy of the mobile app needed.
+      # The team's dashboard backend, deployed on Render - the only source of
+      # NLEX traffic the assistant is allowed to use. Render-to-Render, so it
+      # does not depend on anyone's laptop or network.
       - key: CORRIDOR_API_URL
-        value: http://localhost:4000
+        value: https://smartflow-nlex.onrender.com
