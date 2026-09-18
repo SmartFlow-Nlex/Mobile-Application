@@ -308,7 +308,7 @@ export default function AssistantScreen(): React.ReactElement {
               editable={!isThinking}
               onChangeText={setDraft}
               onSubmitEditing={() => void send(draft)}
-              placeholder="Ask about traffic, routes, or departure"
+              placeholder="Ask about traffic at any NLEX exit"
               placeholderTextColor={colors.textTertiary}
               returnKeyType="send"
               style={styles.input}
