@@ -126,6 +126,27 @@ function readExitList(payload: unknown): NlexExit[] {
  * null at a toll barrier - a barrier is not an exit you take, so "No Access"
  * would read as though something were wrong with it.
  */
+/**
+ * Does traffic flow through here in this direction?
+ *
+ * Not the same question as whether there is a ramp. A toll barrier has no
+ * entry or exit ramps at all, but the mainline runs straight through it, so
+ * both carriageways carry traffic. The Corridor screen draws a direction with
+ * hasRamp=false as bare grey tarmac - "no road this way" - which is right for
+ * a one-way interchange and wrong for a barrier: it left a grey gap in the
+ * northbound carriageway at Bocaue Barrier, on a road that plainly continues.
+ *
+ * Matches what the SQL endpoint reported for the same exits.
+ */
+function trafficFlows(exit: NlexExit, direction: 'NB' | 'SB'): boolean {
+  if (exit.node_type === 'toll-barrier') {
+    return true;
+  }
+  return direction === 'NB'
+    ? exit.nb_entry === true || exit.nb_exit === true
+    : exit.sb_entry === true || exit.sb_exit === true;
+}
+
 function accessLabel(exit: NlexExit, direction: 'NB' | 'SB'): string | null {
   const entry = direction === 'NB' ? exit.nb_entry : exit.sb_entry;
   const leave = direction === 'NB' ? exit.nb_exit : exit.sb_exit;
@@ -204,16 +225,8 @@ function buildCorridorStatus(feed: RealtimeFeed, exits: NlexExit[]): CorridorSta
       longitude: exit.longitude,
       node_type: exit.node_type ?? 'interchange',
       directions: {
-        NB: toDirection(
-          found.NB,
-          exit.nb_entry === true || exit.nb_exit === true,
-          accessLabel(exit, 'NB'),
-        ),
-        SB: toDirection(
-          found.SB,
-          exit.sb_entry === true || exit.sb_exit === true,
-          accessLabel(exit, 'SB'),
-        ),
+        NB: toDirection(found.NB, trafficFlows(exit, 'NB'), accessLabel(exit, 'NB')),
+        SB: toDirection(found.SB, trafficFlows(exit, 'SB'), accessLabel(exit, 'SB')),
       },
     };
   });
