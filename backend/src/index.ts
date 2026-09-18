@@ -15,6 +15,7 @@ import hotspotsRoutes from './routes/hotspots';
 import communityRoutes from './routes/community';
 import usersRoutes from './routes/users';
 import assistantRoutes from './routes/assistant';
+import corridorRoutes from './routes/corridor';
 
 const app: Application = express();
 const PORT: number = parseInt(process.env.PORT || '3000', 10);
@@ -63,6 +64,12 @@ app.use('/api/v1/hotspots', hotspotsRoutes);
 app.use('/api/v1/community', communityRoutes);
 app.use('/api/v1/users', usersRoutes);
 app.use('/api/assistant', assistantRoutes);
+/*
+ * Mirrors the dashboard's own path, so the app switches to this backend by
+ * changing one address rather than any code. See routes/corridor.ts for why
+ * the numbers now come from here instead of straight from the dashboard.
+ */
+app.use('/api/dashboard', corridorRoutes);
 app.use('/api/community', communityRoutes);
 app.use('/api/users', usersRoutes);
 
