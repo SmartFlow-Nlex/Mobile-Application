@@ -53,6 +53,8 @@ export default function AssistantScreen(): React.ReactElement {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isThinking, setIsThinking] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  /** The question behind the current error, so it can be resent in one tap. */
+  const [failedQuestion, setFailedQuestion] = useState<string | null>(null);
   const scrollRef = useRef<ScrollView>(null);
 
   const send = useCallback(
@@ -91,6 +93,15 @@ export default function AssistantScreen(): React.ReactElement {
           },
         ]);
       } catch (caught) {
+        /*
+         * Put the question back rather than leaving the user to retype it, and
+         * take its bubble back out - it was never answered, so leaving it in
+         * the transcript would make the next question look like a follow-up to
+         * something that did not happen.
+         */
+        setMessages((current) => current.filter((item) => item.id !== userMessage.id));
+        setDraft(question);
+        setFailedQuestion(question);
         setError(
           caught instanceof AssistantError
             ? caught.message
@@ -103,9 +114,20 @@ export default function AssistantScreen(): React.ReactElement {
     [isThinking, messages],
   );
 
+  /** Resend whatever failed, straight from the error banner. */
+  const retryFailed = useCallback((): void => {
+    const question = failedQuestion;
+    if (question === null) {
+      return;
+    }
+    setFailedQuestion(null);
+    void send(question);
+  }, [failedQuestion, send]);
+
   const clearConversation = useCallback((): void => {
     setMessages([]);
     setError(null);
+    setFailedQuestion(null);
   }, []);
 
   const canSend = draft.trim().length > 0 && !isThinking;
@@ -230,6 +252,23 @@ export default function AssistantScreen(): React.ReactElement {
             <View style={styles.errorBanner}>
               <Ionicons name="cloud-offline-outline" size={16} color={colors.statusHeavyText} />
               <Text style={styles.errorText}>{error}</Text>
+              {/* Only offered when there is something to resend - a
+                  configuration error would fail the same way every time. */}
+              {failedQuestion !== null ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Try again"
+                  disabled={isThinking}
+                  hitSlop={8}
+                  onPress={retryFailed}
+                  style={({ pressed }) => [
+                    styles.errorRetry,
+                    pressed && styles.errorRetryPressed,
+                  ]}
+                >
+                  <Text style={styles.errorRetryText}>Try again</Text>
+                </Pressable>
+              ) : null}
             </View>
           ) : null}
         </ScrollView>
@@ -492,6 +531,22 @@ const makeStyles = (c: ThemePalette) =>
       paddingVertical: 10,
       borderRadius: 12,
       backgroundColor: c.statusHeavyBg,
+    },
+    errorRetry: {
+      paddingHorizontal: 10,
+      paddingVertical: 5,
+      borderRadius: 8,
+      backgroundColor: c.surface,
+      borderWidth: 1,
+      borderColor: c.statusHeavyText,
+    },
+    errorRetryPressed: {
+      opacity: 0.65,
+    },
+    errorRetryText: {
+      color: c.statusHeavyText,
+      fontSize: Typography.fontSize.sm,
+      fontWeight: Typography.fontWeight.bold,
     },
     errorText: {
       // Was c.danger on c.statusHeavyBg. In dark mode that is #FF6B61 on

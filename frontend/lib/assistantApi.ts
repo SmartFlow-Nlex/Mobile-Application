@@ -82,32 +82,64 @@ function toWireHistory(history: ChatMessage[]): { role: ChatRole; content: strin
   }));
 }
 
+/** Pause between the first attempt and the retry. */
+const RETRY_DELAY_MS = 1200;
+
+const wait = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
+async function postOnce(
+  url: string,
+  message: string,
+  history: ChatMessage[],
+): Promise<Response> {
+  // The model reasons and may call tools, so this needs to be generous - but
+  // not unbounded, or a dead backend leaves the user watching a spinner.
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), ASSISTANT_TIMEOUT_MS);
+  try {
+    return await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message, history: toWireHistory(history) }),
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 export async function askAssistant(
   message: string,
   history: ChatMessage[],
 ): Promise<AssistantReply> {
   const url = `${BACKEND_API_BASE_URL}${CHAT_PATH}`;
 
-  // The model reasons and may call tools, so this needs to be generous - but
-  // not unbounded, or a dead backend leaves the user watching a spinner.
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), ASSISTANT_TIMEOUT_MS);
-
+  /*
+   * One retry, and only when nothing completed.
+   *
+   * Both services are on a free tier that sleeps, so the first request after an
+   * idle spell can take long enough that the phone gives up while the server is
+   * still starting. By the second attempt it is usually awake. A dropped mobile
+   * signal behaves the same way.
+   *
+   * Deliberately not retried for anything the server actually answered: a
+   * missing key will not fix itself, and a failed generation would just be paid
+   * for twice.
+   */
   let response: Response;
   try {
-    response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message, history: toWireHistory(history) }),
-      signal: controller.signal,
-    });
+    response = await postOnce(url, message, history);
   } catch {
-    throw new AssistantError(
-      'unreachable',
-      'Could not reach the SmartFlow assistant. Check that the server is running.',
-    );
-  } finally {
-    clearTimeout(timeout);
+    await wait(RETRY_DELAY_MS);
+    try {
+      response = await postOnce(url, message, history);
+    } catch {
+      throw new AssistantError(
+        'unreachable',
+        "The assistant didn't respond in time. It may be waking up - try again.",
+      );
+    }
   }
 
   if (response.status === 503) {
