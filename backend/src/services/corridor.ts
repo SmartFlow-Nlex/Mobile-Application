@@ -46,6 +46,8 @@ export interface CorridorDirectionStatus {
   speedKmh: number | null;
   jamCount: number;
   observedAt: string | null;
+  /** "Entry & Exit", "Entry Only", "Exit Only", "No Access", or null at a barrier. */
+  access: string | null;
   hasRamp: boolean;
 }
 
@@ -54,6 +56,9 @@ export interface CorridorExit {
   exit_name: string;
   display_name: string;
   km: number;
+  latitude: number;
+  longitude: number;
+  node_type: string;
   directions: { NB: CorridorDirectionStatus; SB: CorridorDirectionStatus };
 }
 
@@ -114,13 +119,39 @@ function readExitList(payload: unknown): NlexExit[] {
   });
 }
 
+/**
+ * How you can use this exit in this direction.
+ *
+ * Copied from the dashboard's accessLabel in lib/nlex-exits.ts, including the
+ * null at a toll barrier - a barrier is not an exit you take, so "No Access"
+ * would read as though something were wrong with it.
+ */
+function accessLabel(exit: NlexExit, direction: 'NB' | 'SB'): string | null {
+  const entry = direction === 'NB' ? exit.nb_entry : exit.sb_entry;
+  const leave = direction === 'NB' ? exit.nb_exit : exit.sb_exit;
+  if (exit.node_type === 'toll-barrier') {
+    return null;
+  }
+  if (entry === true && leave === true) {
+    return 'Entry & Exit';
+  }
+  if (entry === true) {
+    return 'Entry Only';
+  }
+  if (leave === true) {
+    return 'Exit Only';
+  }
+  return 'No Access';
+}
+
 /** An exit-direction the feed said nothing about: no jams means clear. */
-const clearStatus = (hasRamp: boolean): CorridorDirectionStatus => ({
+const clearStatus = (hasRamp: boolean, access: string | null): CorridorDirectionStatus => ({
   status: 'clear',
   level: null,
   speedKmh: null,
   jamCount: 0,
   observedAt: null,
+  access,
   hasRamp,
 });
 
@@ -144,15 +175,17 @@ function buildCorridorStatus(feed: RealtimeFeed, exits: NlexExit[]): CorridorSta
   const toDirection = (
     row: ExitStatus | undefined,
     hasRamp: boolean,
+    access: string | null,
   ): CorridorDirectionStatus =>
     row === undefined
-      ? clearStatus(hasRamp)
+      ? clearStatus(hasRamp, access)
       : {
           status: row.status,
           level: row.level,
           speedKmh: row.speedKmh,
           jamCount: row.jamCount,
           observedAt: row.observedAt,
+          access,
           hasRamp,
         };
 
@@ -165,9 +198,22 @@ function buildCorridorStatus(feed: RealtimeFeed, exits: NlexExit[]): CorridorSta
       // The dashboard's roster carries no separate display name.
       display_name: exit.exit_name,
       km: exit.km,
+      // The Corridor screen prints these under each exit, so they are not
+      // optional - leaving them out crashed it on exit.latitude.toFixed().
+      latitude: exit.latitude,
+      longitude: exit.longitude,
+      node_type: exit.node_type ?? 'interchange',
       directions: {
-        NB: toDirection(found.NB, exit.nb_entry === true || exit.nb_exit === true),
-        SB: toDirection(found.SB, exit.sb_entry === true || exit.sb_exit === true),
+        NB: toDirection(
+          found.NB,
+          exit.nb_entry === true || exit.nb_exit === true,
+          accessLabel(exit, 'NB'),
+        ),
+        SB: toDirection(
+          found.SB,
+          exit.sb_entry === true || exit.sb_exit === true,
+          accessLabel(exit, 'SB'),
+        ),
       },
     };
   });
