@@ -84,5 +84,14 @@ export const BACKEND_API_BASE_URL =
 /** The assistant reasons and calls tools, so it needs longer than a data fetch. */
 export const ASSISTANT_TIMEOUT_MS = 45000;
 
-/** How long to wait before declaring a backend unreachable, in milliseconds. */
-export const API_TIMEOUT_MS = 10000;
+/**
+ * How long to wait before declaring a backend unreachable, in milliseconds.
+ *
+ * Generous because both this backend and the dashboard it reads run on a free
+ * tier that sleeps: waking one takes 20-25s, and the first request of the day
+ * may wait on both in turn. At 10s the app gave up while the servers were still
+ * starting and showed an error on a system that was about to answer. A long
+ * first load is better than a wrong verdict - the screen shows a loading state
+ * throughout, and every later request returns in well under a second.
+ */
+export const API_TIMEOUT_MS = 60000;

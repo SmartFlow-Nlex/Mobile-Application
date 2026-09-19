@@ -32,8 +32,25 @@ const CORRIDOR_API_BASE_URL =
 const REALTIME_PATH = '/api/map-comparison/real-time';
 const EXITS_PATH = '/api/map-comparison/exits';
 
-/** A dead host never refuses, it just stops answering. Fail fast instead. */
-const REQUEST_TIMEOUT_MS = 8000;
+/**
+ * A dead host never refuses, it just stops answering - so there has to be a
+ * bound. 8s was too tight: the dashboard is on a free tier that sleeps, and
+ * waking it takes 20-25s, during which Render answers 502. Every first request
+ * after an idle spell therefore failed, and the app showed "data unavailable"
+ * on a system that was merely starting up.
+ */
+const REQUEST_TIMEOUT_MS = 25000;
+
+/**
+ * Render answers 502/503 while a sleeping service starts. That is "wait", not
+ * "broken", so it is worth one more try - by then the service is usually awake.
+ * Anything else, including a 404 or a 500, is a real failure and is reported.
+ */
+const COLD_START_CODES = new Set([502, 503, 504]);
+const RETRY_DELAY_MS = 1500;
+
+const wait = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
 
 /** The ingester writes every few minutes, so a short cache costs nothing. */
 const CACHE_TTL_MS = 30000;
@@ -265,9 +282,21 @@ export async function getCorridorStatus(): Promise<CorridorResult> {
   try {
     // Both in flight together: the roster is small and rarely changes, but it
     // keys the derivation, so there is nothing to show without it either.
+    /** One retry, and only while the upstream is waking. */
+    const get = async (path: string): Promise<Response> => {
+      const first = await fetch(`${CORRIDOR_API_BASE_URL}${path}`, {
+        signal: controller.signal,
+      });
+      if (!COLD_START_CODES.has(first.status)) {
+        return first;
+      }
+      await wait(RETRY_DELAY_MS);
+      return fetch(`${CORRIDOR_API_BASE_URL}${path}`, { signal: controller.signal });
+    };
+
     const [feedResponse, exitsResponse] = await Promise.all([
-      fetch(`${CORRIDOR_API_BASE_URL}${REALTIME_PATH}`, { signal: controller.signal }),
-      fetch(`${CORRIDOR_API_BASE_URL}${EXITS_PATH}`, { signal: controller.signal }),
+      get(REALTIME_PATH),
+      get(EXITS_PATH),
     ]);
 
     if (!feedResponse.ok) {
