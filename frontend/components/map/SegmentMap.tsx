@@ -69,12 +69,12 @@ const SegmentMap: React.FC<SegmentMapProps> = ({
       />
 
       {/*
-        Both carriageways in the quiet colour first. When the backend sends
-        queues these stay quiet for their whole length and only the queues get
-        colour on top - which is the point: colouring the entire stretch red
-        because one 200 m queue sits in it overstates the problem by an order
-        of magnitude. When it does not send them, the caller passes the status
-        colour here instead and this is the whole picture.
+        Both carriageways full length first, then the queues over the top. With
+        queue detail the caller passes the clear colour here, so the road reads
+        green for its whole length and only the queues are amber or red -
+        colouring the entire stretch red because one 200 m queue sits in it
+        overstates the problem by an order of magnitude. Without it, the caller
+        passes the stretch's status colour and this is the whole picture.
       */}
       <Polyline coordinates={segment.NB} strokeColor={nbColor} strokeWidth={ROAD_WIDTH} />
       <Polyline coordinates={segment.SB} strokeColor={sbColor} strokeWidth={ROAD_WIDTH} />

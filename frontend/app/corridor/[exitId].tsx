@@ -383,16 +383,25 @@ export default function CorridorExitScreen(): React.ReactElement {
   const sb = exit.directions.SB;
 
   /*
-   * With queue detail, the carriageway itself is drawn quiet and only the
-   * queues carry colour - the whole point of the change. Without it, the
-   * carriageway takes the stretch's status colour, because that is genuinely
-   * all that is known.
+   * The carriageway under the queues reads CLEAR, not neutral.
+   *
+   * Drawing it grey was wrong twice over: grey is the colour this app uses for
+   * "no carriageway here", and road with no queue on it is not unknown - the
+   * feed is saying it is running fine, which is worth seeing. So the road is
+   * green for its whole length and the queues are drawn over it in amber or
+   * red. The stretch is still not painted red end to end just because part of
+   * it is queueing, which was the point of the change.
+   *
+   * Without queue detail there is nothing to overlay, so the carriageway takes
+   * the stretch's own status colour - all that is known in that case.
    */
   const baseColourFor = (status: CorridorDirectionStatus): string => {
     if (!status.hasRamp) {
       return colors.border;
     }
-    return hasJamDetail ? colors.textTertiary : toneFor(statusTone[status.status], colors).solid;
+    return hasJamDetail
+      ? toneFor('low', colors).solid
+      : toneFor(statusTone[status.status], colors).solid;
   };
 
   const jamColourFor = (direction: DirectionKey, index: number): string => {
@@ -441,7 +450,7 @@ export default function CorridorExitScreen(): React.ReactElement {
           {segment.widenedForJams
             ? ' Widened past that to show a queue that runs beyond it.'
             : ''}
-          {hasJamDetail ? ' Only the parts in traffic are coloured.' : ''}
+          {hasJamDetail ? ' Green is running clear; only the queues are marked.' : ''}
         </Text>
 
         <CarriagewayCard
