@@ -1,9 +1,13 @@
 import {
+  centrelineVertexCount,
   corridorStatusFromFeed,
   type ExitStatus,
   type FeatureCollection,
+  type JamOnCorridor,
   type NlexExit,
 } from '../corridor/deriveStatus';
+
+export type { JamOnCorridor };
 
 /**
  * Live NLEX corridor data, read from the dashboard/intelligence system.
@@ -66,6 +70,15 @@ export interface CorridorDirectionStatus {
   /** "Entry & Exit", "Entry Only", "Exit Only", "No Access", or null at a barrier. */
   access: string | null;
   hasRamp: boolean;
+  /** Where the queues actually are, so the map can colour only those. */
+  jams: JamOnCorridor[];
+  /** Total length of queue on this stretch, in metres. */
+  queueMetres: number;
+  /**
+   * Time the queues here add, in seconds - Waze's own per-jam estimate, summed.
+   * Null when no jam carried one, which is not the same as no delay.
+   */
+  delaySeconds: number | null;
 }
 
 export interface CorridorExit {
@@ -96,6 +109,13 @@ export interface CorridorStatusData {
   feed: CorridorFeed;
   counts: CorridorCounts;
   exits: CorridorExit[];
+  /**
+   * Which centreline the jam indices point into. The app ships its own copy of
+   * that line and compares this before drawing, so a change to the geometry or
+   * the exit list shows as "no jam detail" rather than as jams in the wrong
+   * place.
+   */
+  geometry: { centrelineVertices: number };
 }
 
 /** Either live data, or a plain reason we could not get it. */
@@ -191,6 +211,9 @@ const clearStatus = (hasRamp: boolean, access: string | null): CorridorDirection
   observedAt: null,
   access,
   hasRamp,
+  jams: [],
+  queueMetres: 0,
+  delaySeconds: null,
 });
 
 /**
@@ -200,6 +223,21 @@ const clearStatus = (hasRamp: boolean, access: string | null): CorridorDirection
  * screen both read it, and neither should have to care that the derivation
  * moved. Only the numbers change - to the dashboard's.
  */
+/**
+ * Added time across a stretch's jams.
+ *
+ * Null only when not one jam reported a delay - summing the ones that did and
+ * calling that the total would understate it silently, but reporting nothing
+ * when some are known would throw away a real figure.
+ */
+function sumDelay(jams: JamOnCorridor[]): number | null {
+  const known = jams.filter((jam) => jam.delaySeconds !== null);
+  if (known.length === 0) {
+    return null;
+  }
+  return known.reduce((total, jam) => total + (jam.delaySeconds ?? 0), 0);
+}
+
 function buildCorridorStatus(feed: RealtimeFeed, exits: NlexExit[]): CorridorStatusData {
   const derived = corridorStatusFromFeed(feed, exits);
 
@@ -225,6 +263,9 @@ function buildCorridorStatus(feed: RealtimeFeed, exits: NlexExit[]): CorridorSta
           observedAt: row.observedAt,
           access,
           hasRamp,
+          jams: row.jams,
+          queueMetres: row.jams.reduce((total, jam) => total + jam.lengthMetres, 0),
+          delaySeconds: sumDelay(row.jams),
         };
 
   const ordered = [...exits].sort((a, b) => a.km - b.km);
@@ -265,6 +306,7 @@ function buildCorridorStatus(feed: RealtimeFeed, exits: NlexExit[]): CorridorSta
     },
     counts,
     exits: rows,
+    geometry: { centrelineVertices: centrelineVertexCount(exits) },
   };
 }
 

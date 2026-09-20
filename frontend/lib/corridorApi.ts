@@ -7,6 +7,24 @@ const CORRIDOR_STATUS_PATH = '/api/dashboard/corridor-status/full';
 /** The server has already classified congestion - never re-derive this from `level`. */
 export type CorridorStatusValue = 'clear' | 'slow' | 'congested';
 
+/**
+ * One queue, as a range of vertices on the corridor centreline.
+ *
+ * The app ships the same centreline the backend derives on, so a pair of
+ * indices places the queue exactly where it was measured without sending its
+ * geometry. Overlapping Waze reports are already merged upstream, so these do
+ * not double back over each other.
+ */
+export interface CorridorJam {
+  startIndex: number;
+  endIndex: number;
+  level: number | null;
+  speedKmh: number | null;
+  /** Waze's estimate of the time this queue adds, in seconds. */
+  delaySeconds: number | null;
+  lengthMetres: number;
+}
+
 export interface CorridorDirectionStatus {
   status: CorridorStatusValue;
   level: number | null;
@@ -16,6 +34,14 @@ export interface CorridorDirectionStatus {
   access: string | null;
   /** False means no ramp exists for this direction at this exit - no traffic ever flows there. */
   hasRamp: boolean;
+  /**
+   * Where the queues are. Absent from a backend that predates this field, so
+   * every reader must cope with it being undefined rather than empty - the two
+   * mean very different things: undefined is "not told", [] is "none".
+   */
+  jams?: CorridorJam[];
+  queueMetres?: number;
+  delaySeconds?: number | null;
 }
 
 export interface CorridorExit {
@@ -52,6 +78,12 @@ export interface CorridorStatusData {
   counts: CorridorCounts;
   /** Ordered by exit_id ascending = Balintawak (km 0) -> Sta. Ines (km ~76.25). */
   exits: CorridorExit[];
+  /**
+   * Which centreline the jam indices point into. Compared against the app's
+   * own copy before any jam is drawn, so a change to the geometry upstream
+   * shows as missing detail rather than as queues in the wrong place.
+   */
+  geometry?: { centrelineVertices: number };
 }
 
 interface CorridorStatusApiResponse {

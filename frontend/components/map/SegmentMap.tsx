@@ -1,8 +1,9 @@
 import React from 'react';
-import { StyleSheet, View } from 'react-native';
-import MapView, { Marker, Polyline } from 'react-native-maps';
+import { Platform, StyleSheet, View } from 'react-native';
+import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import { regionFor } from '../../lib/corridorGeometry';
 import type { SegmentMapProps } from './SegmentMap.types';
+import { MUTED_MAP_STYLE } from './mutedMapStyle';
 
 /**
  * One stretch of NLEX on a real map.
@@ -17,32 +18,82 @@ import type { SegmentMapProps } from './SegmentMap.types';
  * pitch only makes it harder to tell which way the road runs.
  */
 
-const STROKE_WIDTH = 6;
+/** The road itself. Queues are drawn slightly wider so they read as raised. */
+const ROAD_WIDTH = 5;
+const JAM_WIDTH = 7;
 
-const SegmentMap: React.FC<SegmentMapProps> = ({ segment, nbColor, sbColor, exitName }) => (
+/**
+ * Everything but NLEX, turned down.
+ *
+ * Two different mechanisms, because the platforms have no common one. Apple
+ * Maps has a muted basemap built in and no support for custom styling; Google
+ * Maps has no muted type but takes a style array. Using each platform's own
+ * tool gets the same result - a quiet grey basemap with the corridor as the
+ * only thing with colour in it - where insisting on one would leave the other
+ * at full saturation.
+ */
+const SegmentMap: React.FC<SegmentMapProps> = ({
+  segment,
+  nbColor,
+  sbColor,
+  exitName,
+  quietColor,
+  jamColorFor,
+}) => (
   <View style={styles.fill}>
     <MapView
       style={styles.fill}
+      // Google on Android for the style array; Apple on iOS, where asking for
+      // Google needs an API key the Expo Go build does not carry.
+      provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
+      customMapStyle={Platform.OS === 'android' ? MUTED_MAP_STYLE : undefined}
+      mapType={Platform.OS === 'ios' ? 'mutedStandard' : 'standard'}
       initialRegion={regionFor(segment.bounds)}
       rotateEnabled={false}
       pitchEnabled={false}
       toolbarEnabled={false}
       showsCompass={false}
+      showsTraffic={false}
+      showsPointsOfInterests={false}
+      showsBuildings={false}
     >
       {/*
         A dark line under both carriageways. Where the two run close enough to
         touch at this zoom it reads as the median rather than as a gap, and it
-        keeps a pale carriageway (clear green) legible over pale map tiles.
+        keeps a pale carriageway legible over pale map tiles.
       */}
       <Polyline
         coordinates={segment.centre}
-        strokeColor="rgba(0,0,0,0.30)"
-        strokeWidth={STROKE_WIDTH * 2.6}
+        strokeColor="rgba(0,0,0,0.28)"
+        strokeWidth={ROAD_WIDTH * 3}
       />
-      <Polyline coordinates={segment.NB} strokeColor={nbColor} strokeWidth={STROKE_WIDTH} />
-      <Polyline coordinates={segment.SB} strokeColor={sbColor} strokeWidth={STROKE_WIDTH} />
 
-      <Marker coordinate={segment.exit} title={exitName} description="NLEX interchange" />
+      {/*
+        Both carriageways in the quiet colour first. When the backend sends
+        queues these stay quiet for their whole length and only the queues get
+        colour on top - which is the point: colouring the entire stretch red
+        because one 200 m queue sits in it overstates the problem by an order
+        of magnitude. When it does not send them, the caller passes the status
+        colour here instead and this is the whole picture.
+      */}
+      <Polyline coordinates={segment.NB} strokeColor={nbColor} strokeWidth={ROAD_WIDTH} />
+      <Polyline coordinates={segment.SB} strokeColor={sbColor} strokeWidth={ROAD_WIDTH} />
+
+      {segment.jamLines.map((line) => (
+        <Polyline
+          key={`${line.direction}-${line.index}`}
+          coordinates={line.coords}
+          strokeColor={jamColorFor(line.direction, line.index)}
+          strokeWidth={JAM_WIDTH}
+        />
+      ))}
+
+      <Marker
+        coordinate={segment.exit}
+        title={exitName}
+        description="NLEX interchange"
+        pinColor={quietColor}
+      />
     </MapView>
   </View>
 );

@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -8,11 +8,13 @@ import type { ThemePalette } from '../../theme';
 import { Typography } from '../../constants/typography';
 import { toneFor } from '../../components/dashboard/severity';
 import SegmentMap from '../../components/map/SegmentMap';
-import { segmentForExit } from '../../lib/corridorGeometry';
+import { centrelineMatches, segmentForExit } from '../../lib/corridorGeometry';
+import type { DirectionKey } from '../../lib/corridorGeometry';
 import { useCorridorStatus } from '../../hooks/useCorridorStatus';
 import type {
   CorridorDirectionStatus,
   CorridorExit,
+  CorridorJam,
   CorridorStatusValue,
 } from '../../lib/corridorApi';
 import type { CongestionLevel } from '../../lib/trafficModel';
@@ -50,6 +52,45 @@ function formatSpeed(speedKmh: number | null): string | null {
   return `${Math.round(speedKmh)} km/h`;
 }
 
+/** Queue length, in the unit that suits its size. */
+function formatDistance(metres: number): string {
+  return metres < 950 ? `${Math.round(metres / 10) * 10} m` : `${(metres / 1000).toFixed(1)} km`;
+}
+
+/**
+ * Added time, rounded the way it is meant to be read.
+ *
+ * Waze reports these to the second - 82, 314 - and printing that would claim a
+ * precision the estimate does not have. Under a minute is worth saying as
+ * "under a min" rather than rounding to zero, which reads as no delay at all.
+ */
+function formatDelay(seconds: number | null | undefined): string | null {
+  if (seconds === null || seconds === undefined || !Number.isFinite(seconds)) {
+    return null;
+  }
+  if (seconds < 60) {
+    return 'under a min';
+  }
+  const minutes = Math.round(seconds / 60);
+  return `${minutes} min`;
+}
+
+/**
+ * Same bands the backend classifies a whole stretch by, applied to one queue.
+ *
+ * A carriageway can hold a crawl and a mere slowdown at once; colouring both
+ * with the stretch's overall status would say something the feed did not.
+ */
+function jamTone(jam: CorridorJam): CongestionLevel {
+  if ((jam.level !== null && jam.level >= 3) || (jam.speedKmh !== null && jam.speedKmh < 10)) {
+    return 'severe';
+  }
+  if (jam.level === 0) {
+    return 'low';
+  }
+  return 'moderate';
+}
+
 /** "3 mins ago" from the feed's own timestamp, or null when it has none. */
 function formatObserved(observedAt: string | null): string | null {
   if (observedAt === null) {
@@ -72,11 +113,19 @@ interface CarriagewayCardProps {
   title: string;
   arrow: 'arrow-up' | 'arrow-down';
   status: CorridorDirectionStatus;
+  /** False when the backend cannot tell us where the queues are. */
+  hasJamDetail: boolean;
 }
 
-const CarriagewayCard: React.FC<CarriagewayCardProps> = ({ title, arrow, status }) => {
+const CarriagewayCard: React.FC<CarriagewayCardProps> = ({
+  title,
+  arrow,
+  status,
+  hasJamDetail,
+}) => {
   const { colors } = useTheme();
   const styles = useThemedStyles(makeStyles);
+  const [showQueues, setShowQueues] = useState(false);
 
   /*
    * No ramp is not a traffic state. Colouring it green would claim this
@@ -98,6 +147,8 @@ const CarriagewayCard: React.FC<CarriagewayCardProps> = ({ title, arrow, status 
   const tone = toneFor(statusTone[status.status], colors);
   const speed = formatSpeed(status.speedKmh);
   const observed = formatObserved(status.observedAt);
+  const queues = status.jams ?? [];
+  const delay = formatDelay(status.delaySeconds);
 
   return (
     <View style={[styles.dirCard, { borderColor: tone.solid }]}>
@@ -115,8 +166,40 @@ const CarriagewayCard: React.FC<CarriagewayCardProps> = ({ title, arrow, status 
         <Text style={[styles.dirSpeed, { color: tone.text }]}>{speed}</Text>
       ) : null}
 
+      {/*
+        How much road is queueing, and what it costs - the two numbers a driver
+        deciding whether to take this stretch actually needs. Shown together on
+        one line because neither means much alone: 200 m of queue is nothing,
+        200 m that takes four minutes is a standstill.
+      */}
+      {hasJamDetail && queues.length > 0 ? (
+        <View style={[styles.queueBar, { backgroundColor: tone.background }]}>
+          <View style={styles.queueFigure}>
+            <Text style={[styles.queueValue, { color: tone.text }]}>
+              {formatDistance(status.queueMetres ?? 0)}
+            </Text>
+            <Text style={styles.queueLabel}>of queue</Text>
+          </View>
+          <View style={styles.queueDivider} />
+          <View style={styles.queueFigure}>
+            <Text style={[styles.queueValue, { color: tone.text }]}>
+              {delay ?? 'not given'}
+            </Text>
+            <Text style={styles.queueLabel}>added delay</Text>
+          </View>
+        </View>
+      ) : null}
+
       <View style={styles.dirMetaRow}>
-        {status.jamCount > 0 ? (
+        {hasJamDetail ? (
+          queues.length > 0 ? (
+            <Text style={styles.dirMeta}>
+              {queues.length} queue{queues.length === 1 ? '' : 's'} on this stretch
+            </Text>
+          ) : (
+            <Text style={styles.dirMeta}>No queues reported</Text>
+          )
+        ) : status.jamCount > 0 ? (
           <Text style={styles.dirMeta}>
             {status.jamCount} jam{status.jamCount === 1 ? '' : 's'} on this stretch
           </Text>
@@ -126,6 +209,55 @@ const CarriagewayCard: React.FC<CarriagewayCardProps> = ({ title, arrow, status 
         {status.access !== null ? <Text style={styles.dirMeta}>{status.access}</Text> : null}
         {observed !== null ? <Text style={styles.dirMeta}>{observed}</Text> : null}
       </View>
+
+      {/*
+        Each queue separately, behind a tap. A stretch can hold more than one,
+        and they are not always alike - the summary above adds them up, so this
+        is where you find out whether it is one long crawl or two short ones.
+      */}
+      {hasJamDetail && queues.length > 0 ? (
+        <>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityState={{ expanded: showQueues }}
+            onPress={() => setShowQueues((on) => !on)}
+            style={({ pressed }) => [styles.queueToggle, pressed && styles.pressedDim]}
+          >
+            <Ionicons
+              name={showQueues ? 'chevron-up' : 'chevron-down'}
+              size={13}
+              color={colors.accent}
+            />
+            <Text style={styles.queueToggleText}>
+              {showQueues ? 'Hide the queues' : `Show ${queues.length === 1 ? 'the queue' : 'each queue'}`}
+            </Text>
+          </Pressable>
+
+          {showQueues ? (
+            <View style={styles.queueList}>
+              {queues.map((jam, index) => {
+                const jamColour = toneFor(jamTone(jam), colors);
+                const jamDelay = formatDelay(jam.delaySeconds);
+                const jamSpeed = formatSpeed(jam.speedKmh);
+                return (
+                  <View key={`${jam.startIndex}-${jam.endIndex}-${index}`} style={styles.queueRow}>
+                    <View style={[styles.queueDot, { backgroundColor: jamColour.solid }]} />
+                    <Text style={styles.queueRowText}>
+                      {[
+                        formatDistance(jam.lengthMetres),
+                        jamSpeed,
+                        jamDelay === null ? null : `+${jamDelay}`,
+                      ]
+                        .filter((part) => part !== null)
+                        .join(' · ')}
+                    </Text>
+                  </View>
+                );
+              })}
+            </View>
+          ) : null}
+        </>
+      ) : null}
     </View>
   );
 };
@@ -162,16 +294,29 @@ export default function CorridorExitScreen(): React.ReactElement {
   }, [data, exitId]);
 
   /*
-   * Cutting the centreline walks 2,559 vertices several times over. It depends
-   * only on which exit this is, so it must not be redone on every poll tick -
-   * the exit list itself is fixed, so `data.exits` is a safe dependency.
+   * Only trust jam indices when the backend is pointing into the same
+   * centreline this app ships. A deployed backend from before queues existed
+   * sends neither, and one built on different geometry would send indices that
+   * land somewhere else entirely - both cases fall back to colouring the whole
+   * carriageway, which is what this screen did before.
    */
+  const hasJamDetail =
+    exit !== null &&
+    centrelineMatches(data?.geometry?.centrelineVertices) &&
+    exit.directions.NB.jams !== undefined &&
+    exit.directions.SB.jams !== undefined;
+
   const segment = useMemo(() => {
     if (data === null || !Number.isFinite(exitId)) {
       return null;
     }
-    return segmentForExit(data.exits, exitId);
-  }, [data, exitId]);
+    const found = data.exits.find((candidate) => candidate.exit_id === exitId);
+    const jams =
+      found !== undefined && hasJamDetail
+        ? { NB: found.directions.NB.jams ?? [], SB: found.directions.SB.jams ?? [] }
+        : undefined;
+    return segmentForExit(data.exits, exitId, jams);
+  }, [data, exitId, hasJamDetail]);
 
   const header = (title: string): React.ReactElement => (
     <View style={styles.topBar}>
@@ -236,8 +381,24 @@ export default function CorridorExitScreen(): React.ReactElement {
 
   const nb = exit.directions.NB;
   const sb = exit.directions.SB;
-  const colourFor = (status: CorridorDirectionStatus): string =>
-    status.hasRamp ? toneFor(statusTone[status.status], colors).solid : colors.border;
+
+  /*
+   * With queue detail, the carriageway itself is drawn quiet and only the
+   * queues carry colour - the whole point of the change. Without it, the
+   * carriageway takes the stretch's status colour, because that is genuinely
+   * all that is known.
+   */
+  const baseColourFor = (status: CorridorDirectionStatus): string => {
+    if (!status.hasRamp) {
+      return colors.border;
+    }
+    return hasJamDetail ? colors.textTertiary : toneFor(statusTone[status.status], colors).solid;
+  };
+
+  const jamColourFor = (direction: DirectionKey, index: number): string => {
+    const jam = (direction === 'NB' ? nb : sb).jams?.[index];
+    return toneFor(jam === undefined ? 'severe' : jamTone(jam), colors).solid;
+  };
 
   return (
     <SafeAreaView edges={['top']} style={styles.safeArea}>
@@ -248,8 +409,10 @@ export default function CorridorExitScreen(): React.ReactElement {
         <View style={styles.mapCard}>
           <SegmentMap
             segment={segment}
-            nbColor={colourFor(nb)}
-            sbColor={colourFor(sb)}
+            nbColor={baseColourFor(nb)}
+            sbColor={baseColourFor(sb)}
+            jamColorFor={jamColourFor}
+            quietColor={colors.textTertiary}
             exitName={exit.display_name}
           />
         </View>
@@ -275,10 +438,24 @@ export default function CorridorExitScreen(): React.ReactElement {
               }`
             : ''}
           .
+          {segment.widenedForJams
+            ? ' Widened past that to show a queue that runs beyond it.'
+            : ''}
+          {hasJamDetail ? ' Only the parts in traffic are coloured.' : ''}
         </Text>
 
-        <CarriagewayCard title="Northbound" arrow="arrow-up" status={nb} />
-        <CarriagewayCard title="Southbound" arrow="arrow-down" status={sb} />
+        <CarriagewayCard
+          title="Northbound"
+          arrow="arrow-up"
+          status={nb}
+          hasJamDetail={hasJamDetail}
+        />
+        <CarriagewayCard
+          title="Southbound"
+          arrow="arrow-down"
+          status={sb}
+          hasJamDetail={hasJamDetail}
+        />
 
         <View style={styles.footer}>
           <Ionicons name="location-outline" size={12} color={colors.textTertiary} />
@@ -424,6 +601,64 @@ const makeStyles = (c: ThemePalette) =>
       gap: 3,
     },
     dirMeta: {
+      color: c.textSecondary,
+      fontSize: Typography.fontSize.xs,
+      fontWeight: '600',
+    },
+    queueBar: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      borderRadius: 12,
+      paddingVertical: 10,
+      paddingHorizontal: 14,
+      gap: 14,
+    },
+    queueFigure: {
+      flex: 1,
+    },
+    queueValue: {
+      fontSize: 19,
+      fontWeight: '800',
+      letterSpacing: -0.3,
+    },
+    queueLabel: {
+      color: c.textSecondary,
+      fontSize: 11,
+      fontWeight: '600',
+      marginTop: 1,
+    },
+    queueDivider: {
+      width: 1,
+      alignSelf: 'stretch',
+      backgroundColor: c.hairline,
+    },
+    queueToggle: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      alignSelf: 'flex-start',
+      paddingVertical: 4,
+    },
+    queueToggleText: {
+      color: c.accent,
+      fontSize: Typography.fontSize.xs,
+      fontWeight: '700',
+    },
+    queueList: {
+      gap: 7,
+      paddingTop: 2,
+    },
+    queueRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+    },
+    queueDot: {
+      width: 7,
+      height: 7,
+      borderRadius: 4,
+    },
+    queueRowText: {
       color: c.textSecondary,
       fontSize: Typography.fontSize.xs,
       fontWeight: '600',

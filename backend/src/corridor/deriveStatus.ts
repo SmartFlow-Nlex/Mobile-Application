@@ -36,6 +36,28 @@ import nlexGeometry from './nlexGeometry.json';
 
 export type SegmentStatus = 'clear' | 'slow' | 'congested';
 
+/**
+ * One jam, placed on the corridor centreline.
+ *
+ * Carried as a pair of vertex indices rather than coordinates because the app
+ * ships the very same centreline - both are `corridorGuard(...).centreline`
+ * built from the same geometry and exit list - so indices are enough to draw
+ * the jam exactly where it was measured, at a fraction of the payload. The
+ * response reports the vertex count so the app can refuse to draw if the two
+ * lines have drifted apart.
+ */
+export interface JamOnCorridor {
+  /** Inclusive range into the centreline. */
+  startIndex: number;
+  endIndex: number;
+  level: number | null;
+  speedKmh: number | null;
+  /** Waze's own estimate of the time this jam adds, in seconds. */
+  delaySeconds: number | null;
+  /** Length of the jammed stretch along the centreline. */
+  lengthMetres: number;
+}
+
 /** One exit the feed said something about, in one direction. */
 export interface ExitStatus {
   exit: string;
@@ -45,6 +67,8 @@ export interface ExitStatus {
   speedKmh: number | null;
   jamCount: number;
   observedAt: string | null;
+  /** Every jam behind this reading, so the map can colour only the queue. */
+  jams: JamOnCorridor[];
 }
 
 /** The exit rows the dashboard serves from nlex_exits. */
@@ -116,6 +140,71 @@ function guardFor(exits: NlexExit[]): CorridorGuard {
 }
 
 /**
+ * Fold jams that cover the same road into one queue each.
+ *
+ * Waze reports a stretch as several overlapping jams - at Paso de Blas three
+ * separate features snapped to the identical range of centreline. Left alone
+ * they are counted three times over, which turned 3.2 km of queue into 9.7 km
+ * and inflated the delay to match. Nobody sitting in it is queueing three
+ * times.
+ *
+ * Within a merged queue the worst level and slowest speed win, as they do
+ * everywhere else here, and the delay is the largest of the overlapping
+ * reports rather than their sum - they are describing the same traffic, so
+ * adding them up would invent time no driver spends. Delays across queues that
+ * do NOT overlap are still added, because those are consecutive.
+ */
+function mergeJams(
+  jams: JamOnCorridor[],
+  spanMetres: (from: number, to: number) => number,
+): JamOnCorridor[] {
+  if (jams.length <= 1) {
+    return jams;
+  }
+
+  const sorted = [...jams].sort((a, b) => a.startIndex - b.startIndex);
+  const out: JamOnCorridor[] = [];
+
+  for (const jam of sorted) {
+    const last = out[out.length - 1];
+    // Touching counts as overlapping: two queues that meet end to end are one
+    // queue, and drawing them separately would leave a hairline of clear road.
+    if (last !== undefined && jam.startIndex <= last.endIndex) {
+      last.endIndex = Math.max(last.endIndex, jam.endIndex);
+      last.level =
+        last.level === null ? jam.level : jam.level === null ? last.level : Math.max(last.level, jam.level);
+      last.speedKmh =
+        last.speedKmh === null
+          ? jam.speedKmh
+          : jam.speedKmh === null
+            ? last.speedKmh
+            : Math.min(last.speedKmh, jam.speedKmh);
+      last.delaySeconds =
+        last.delaySeconds === null
+          ? jam.delaySeconds
+          : jam.delaySeconds === null
+            ? last.delaySeconds
+            : Math.max(last.delaySeconds, jam.delaySeconds);
+      last.lengthMetres = Math.round(spanMetres(last.startIndex, last.endIndex));
+    } else {
+      out.push({ ...jam });
+    }
+  }
+
+  return out;
+}
+
+/**
+ * How many vertices the rebuilt centreline has.
+ *
+ * The app draws jams by slicing its own copy of this line, so it has to be
+ * able to check the two are the same line before trusting an index into it.
+ */
+export function centrelineVertexCount(exits: NlexExit[]): number {
+  return exits.length === 0 ? 0 : guardFor(exits).centreline.length;
+}
+
+/**
  * One row per exit and direction the feed says something about. Exits it is
  * silent on are absent, and the caller reads that as clear - matching how the
  * dashboard's panel treats them.
@@ -137,8 +226,20 @@ export function corridorStatusFromFeed(
     speed: number | null;
     count: number;
     observedAt: string | null;
+    jams: JamOnCorridor[];
   }
   const byKey = new Map<string, Acc>();
+
+  /** Length of a stretch of the centreline, in metres. */
+  const spanMetres = (from: number, to: number): number => {
+    let total = 0;
+    for (let i = from + 1; i <= to && i < guard.centreline.length; i += 1) {
+      const a = guard.centreline[i - 1];
+      const b = guard.centreline[i];
+      total += Math.hypot((a[0] - b[0]) * M_PER_DEG_LON, (a[1] - b[1]) * M_PER_DEG_LAT);
+    }
+    return total;
+  };
 
   for (const feature of kept.features ?? []) {
     const props = feature.properties;
@@ -177,11 +278,24 @@ export function corridorStatusFromFeed(
     const level = Number.isFinite(Number(props.level)) ? Number(props.level) : null;
     const speed = Number.isFinite(Number(props.speed)) ? Number(props.speed) : null;
     const at = typeof props.observed_at === 'string' ? props.observed_at : null;
+    const delay = Number.isFinite(Number(props.delay_seconds))
+      ? Number(props.delay_seconds)
+      : null;
+
+    const jam: JamOnCorridor = {
+      startIndex: snapped.startIndex,
+      endIndex: snapped.endIndex,
+      level,
+      speedKmh: speed,
+      delaySeconds: delay,
+      lengthMetres: Math.round(spanMetres(snapped.startIndex, snapped.endIndex)),
+    };
 
     const acc = byKey.get(key);
     if (acc === undefined) {
-      byKey.set(key, { level, speed, count: 1, observedAt: at });
+      byKey.set(key, { level, speed, count: 1, observedAt: at, jams: [jam] });
     } else {
+      acc.jams.push(jam);
       // Worst level and slowest speed seen, matching the SQL this replaces.
       acc.level =
         acc.level === null ? level : level === null ? acc.level : Math.max(acc.level, level);
@@ -204,6 +318,7 @@ export function corridorStatusFromFeed(
       speedKmh: acc.speed,
       jamCount: acc.count,
       observedAt: acc.observedAt,
+      jams: mergeJams(acc.jams, spanMetres),
     };
   });
 }

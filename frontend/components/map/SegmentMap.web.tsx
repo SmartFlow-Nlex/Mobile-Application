@@ -126,7 +126,13 @@ const Polyline: React.FC<PolylineProps> = ({ line, color, width, bounds, box }) 
   );
 };
 
-const SegmentMap: React.FC<SegmentMapProps> = ({ segment, nbColor, sbColor, exitName }) => {
+const SegmentMap: React.FC<SegmentMapProps> = ({
+  segment,
+  nbColor,
+  sbColor,
+  exitName,
+  jamColorFor,
+}) => {
   const { colors } = useTheme();
   const styles = useThemedStyles(makeStyles);
   const [box, setBox] = useState<PlotBox>({ width: 0, height: 0 });
@@ -163,6 +169,18 @@ const SegmentMap: React.FC<SegmentMapProps> = ({ segment, nbColor, sbColor, exit
           />
           <Polyline line={segment.NB} color={nbColor} width={6} bounds={bounds} box={box} />
           <Polyline line={segment.SB} color={sbColor} width={6} bounds={bounds} box={box} />
+
+          {/* Only the queues carry colour; the road under them stays quiet. */}
+          {segment.jamLines.map((jam) => (
+            <Polyline
+              key={`${jam.direction}-${jam.index}`}
+              line={jam.coords}
+              color={jamColorFor(jam.direction, jam.index)}
+              width={8}
+              bounds={bounds}
+              box={box}
+            />
+          ))}
 
           {exit !== null ? (
             <View

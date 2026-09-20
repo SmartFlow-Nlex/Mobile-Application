@@ -49,18 +49,50 @@ export interface Bounds {
   maxLon: number;
 }
 
+/** A queue, as the caller received it: a range of centreline vertices. */
+export interface JamRange {
+  startIndex: number;
+  endIndex: number;
+}
+
+/** One queue, ready to draw on its own carriageway. */
+export interface JamLine {
+  direction: DirectionKey;
+  /**
+   * Which entry of that direction's jam list this came from, so the caller can
+   * colour each queue by its own severity. Two queues on one carriageway are
+   * not always the same: a crawl and a slowdown drawn in one colour would say
+   * something the feed did not.
+   */
+  index: number;
+  coords: LatLng[];
+}
+
+export type DirectionKey = 'NB' | 'SB';
+
 export interface CorridorSegment {
-  /** The stretch this exit owns, centre of the carriageway. */
+  /** The drawn road, centre of the carriageway. */
   centre: LatLng[];
-  /** The same stretch shifted onto each carriageway, for two coloured lines. */
+  /** The same road shifted onto each carriageway. */
   NB: LatLng[];
   SB: LatLng[];
   /** Where this exit sits, and its neighbours at each end of the stretch. */
   exit: LatLng;
   startLabel: string | null;
   endLabel: string | null;
-  /** Length of the drawn stretch, in kilometres. */
+  /** Length of the drawn road, in kilometres. */
   lengthKm: number;
+  /**
+   * Length of the stretch this exit actually answers for, which is not always
+   * what is drawn: a queue attributed here can run past the halfway point to
+   * the next interchange, and drawing coloured road with no grey under it
+   * would be worse than drawing a little extra.
+   */
+  stretchKm: number;
+  /** True when the drawn road was widened to contain a queue. */
+  widenedForJams: boolean;
+  /** Only the queues - the part of the road that is actually in traffic. */
+  jamLines: JamLine[];
   bounds: Bounds;
 }
 
@@ -174,8 +206,16 @@ function lengthKmOf(line: LngLat[]): number {
  * does not cover.
  *
  * `exits` must be the full corridor list; the neighbours are taken from it.
+ *
+ * `jams` are the queues attributed to this exit, per carriageway, as vertex
+ * ranges into this same centreline. Pass none and the whole stretch is drawn
+ * plain, which is what a backend that does not yet send queues gets.
  */
-export function segmentForExit(exits: CorridorExit[], exitId: number): CorridorSegment | null {
+export function segmentForExit(
+  exits: CorridorExit[],
+  exitId: number,
+  jams?: { NB: JamRange[]; SB: JamRange[] },
+): CorridorSegment | null {
   if (exits.length === 0) {
     return null;
   }
@@ -229,24 +269,64 @@ export function segmentForExit(exits: CorridorExit[], exitId: number): CorridorS
     return index;
   };
 
-  const from = Math.max(0, Math.min(walk(-1), here));
-  const to = Math.min(points.length - 1, Math.max(walk(1), here));
-  const slice = points.slice(from, to + 1);
+  const stretchFrom = Math.max(0, Math.min(walk(-1), here));
+  const stretchTo = Math.min(points.length - 1, Math.max(walk(1), here));
 
+  if (stretchTo - stretchFrom < 1) {
+    return null;
+  }
+
+  /*
+   * A queue does not respect the halfway line. One attributed to NLEX Harbor
+   * Link ran from vertex 8 to 57 while that interchange's own stretch is
+   * roughly 15 to 40, so drawing only the stretch would have left coloured
+   * road hanging off both ends with no grey beneath it. The drawn road is
+   * therefore the stretch plus whatever it takes to contain the queues, and
+   * `stretchKm` still reports the part this exit answers for.
+   */
+  const all: JamRange[] = [...(jams?.NB ?? []), ...(jams?.SB ?? [])].filter(
+    (jam) =>
+      Number.isFinite(jam.startIndex) &&
+      Number.isFinite(jam.endIndex) &&
+      jam.endIndex < points.length &&
+      jam.startIndex >= 0,
+  );
+  const from = all.reduce((lo, jam) => Math.min(lo, jam.startIndex), stretchFrom);
+  const to = all.reduce((hi, jam) => Math.max(hi, jam.endIndex), stretchTo);
+
+  const slice = points.slice(from, to + 1);
   if (slice.length < 2) {
     return null;
   }
 
   /*
    * The slice runs south to north, the same way northbound traffic does, so
-   * the left-hand side of that direction of travel is the west side. Both
-   * carriageways are drawn, and which colour goes on which side matters only
-   * in that the two must not swap between exits - so it is fixed here rather
-   * than derived per segment.
+   * the perpendicular puts northbound on the east side - the correct side for
+   * driving on the right. Which colour goes on which side matters only in that
+   * the two must not swap between exits, so it is fixed here.
    */
   const NB = offsetLine(slice, -1);
   const SB = offsetLine(slice, 1);
   const centre = slice.map((point) => ({ latitude: point[1], longitude: point[0] }));
+
+  /** A queue's own vertices, offset onto the carriageway it is on. */
+  const jamLine = (jam: JamRange, direction: DirectionKey, index: number): JamLine | null => {
+    const lo = Math.max(from, Math.min(jam.startIndex, jam.endIndex));
+    const hi = Math.min(to, Math.max(jam.startIndex, jam.endIndex));
+    if (hi - lo < 1) {
+      return null;
+    }
+    return {
+      direction,
+      index,
+      coords: offsetLine(points.slice(lo, hi + 1), direction === 'NB' ? -1 : 1),
+    };
+  };
+
+  const jamLines: JamLine[] = [
+    ...(jams?.NB ?? []).map((jam, index) => jamLine(jam, 'NB', index)),
+    ...(jams?.SB ?? []).map((jam, index) => jamLine(jam, 'SB', index)),
+  ].filter((line): line is JamLine => line !== null);
 
   return {
     centre,
@@ -256,9 +336,20 @@ export function segmentForExit(exits: CorridorExit[], exitId: number): CorridorS
     startLabel: previous?.display_name ?? null,
     endLabel: next?.display_name ?? null,
     lengthKm: lengthKmOf(slice),
+    stretchKm: lengthKmOf(points.slice(stretchFrom, stretchTo + 1)),
+    widenedForJams: from < stretchFrom || to > stretchTo,
+    jamLines,
     bounds: boundsOf([NB, SB]),
   };
 }
+
+/** True when the app's centreline is the one the backend's indices refer to. */
+export function centrelineMatches(vertices: number | undefined): boolean {
+  return vertices === points.length;
+}
+
+/** Exposed so a caller can say which line it is drawing on. */
+export const CENTRELINE_VERTICES = points.length;
 
 /**
  * A map region that frames a segment with a margin around it.
