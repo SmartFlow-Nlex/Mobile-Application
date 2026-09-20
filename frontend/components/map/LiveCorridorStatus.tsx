@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { useRouter } from 'expo-router';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme, useThemedStyles } from '../../theme';
@@ -134,6 +135,7 @@ const ProportionBar: React.FC<ProportionBarProps> = ({ clear, slow, congested })
 const LiveCorridorStatus: React.FC = () => {
   const { colors } = useTheme();
   const styles = useThemedStyles(makeStyles);
+  const router = useRouter();
   const { data, isLoading, error, refresh } = useCorridorStatus();
 
   const [problemsOnly, setProblemsOnly] = useState<boolean>(false);
@@ -316,10 +318,18 @@ const LiveCorridorStatus: React.FC = () => {
         </Text>
       </Pressable>
 
+      {/*
+        `rowFor` sets each row's id to the exit_id, which is what the map
+        screen looks the interchange up by - so the two ends of this
+        navigation agree without passing the reading itself through the URL.
+        The screen re-reads the live feed, so what it shows cannot drift from
+        what was tapped.
+      */}
       <CorridorRoad
         rows={rows}
         emptyTitle="Nothing slow right now"
         emptyText={`All ${exits.length} interchanges are reporting clear.`}
+        onOpenRow={(id) => router.push(`/corridor/${id}`)}
       />
     </View>
   );

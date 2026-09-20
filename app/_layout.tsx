@@ -92,6 +92,8 @@ function ThemedStack(): React.ReactElement {
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="profile/index" />
         <Stack.Screen name="notifications" />
+        {/* One interchange on the map, opened from the corridor list. */}
+        <Stack.Screen name="corridor/[exitId]" />
       </Stack>
       {/*
         Light icons on the dark theme, dark icons on the light one. SDK 57

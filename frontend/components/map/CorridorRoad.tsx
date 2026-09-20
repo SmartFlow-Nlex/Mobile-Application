@@ -14,20 +14,27 @@ const BOTH: DirectionKey[] = ['NB', 'SB'];
 
 export const directionLabel: Record<DirectionKey, string> = { NB: 'NB', SB: 'SB' };
 /**
- * Which way each carriageway runs ON THIS DIAGRAM - which is not which way it
- * runs on a map.
+ * Which way each carriageway is DRAWN on this diagram.
  *
- * Every list here is ordered by km ascending from Balintawak, and the feed's
- * own latitudes confirm what that means: 14.679 at the top of the list rising
- * to 15.222 at the bottom. North is therefore at the BOTTOM, so northbound
- * traffic travels DOWN the page and southbound travels up.
+ * Northbound points up and southbound points down, because that is the
+ * convention a reader brings to any road diagram: up is north. This is a
+ * presentation choice, asked for by the team, and it is worth being clear that
+ * it does not follow the order of the list beneath it.
  *
- * These were the other way round, which made the arrows contradict the list
- * they sat in. The flowing lane markings would have contradicted them too.
+ * The rows are ordered by km ascending from Balintawak, and the feed's own
+ * latitudes say what that means: 14.679 at the top of the list rising to
+ * 15.222 at the bottom. So on this list the north end of NLEX is at the
+ * BOTTOM, and an upward arrow therefore points from Sta. Ines back towards
+ * Balintawak. Read the arrows as a compass for the carriageway, not as travel
+ * along the rows.
+ *
+ * If that ever needs to be literally true instead, flip the row order so the
+ * north end sits at the top - do not flip these back on their own, or the
+ * arrows and the flow will disagree with each other again.
  */
 export const directionArrow: Record<DirectionKey, 'arrow-up' | 'arrow-down'> = {
-  NB: 'arrow-down',
-  SB: 'arrow-up',
+  NB: 'arrow-up',
+  SB: 'arrow-down',
 };
 
 /**
@@ -235,9 +242,17 @@ interface ExitRowProps {
   last: boolean;
   expanded: boolean;
   onToggle: () => void;
+  /**
+   * Set only by the live view, where tapping opens the interchange on a real
+   * map instead of expanding the detail in place. The forecast view leaves it
+   * undefined and keeps the inline panel, because that map shows live traffic
+   * and opening it from a modelled row would put a live reading behind a
+   * forecast the user tapped.
+   */
+  onOpen?: () => void;
 }
 
-const ExitRow: React.FC<ExitRowProps> = ({ row, first, last, expanded, onToggle }) => {
+const ExitRow: React.FC<ExitRowProps> = ({ row, first, last, expanded, onToggle, onOpen }) => {
   const { colors } = useTheme();
   const styles = useThemedStyles(makeStyles);
 
@@ -257,14 +272,16 @@ const ExitRow: React.FC<ExitRowProps> = ({ row, first, last, expanded, onToggle 
 
   const shown = BOTH.filter((key) => isWorthShowing(row[key]));
   const hasDetail = row.detail !== undefined && row.detail.length > 0;
+  const opens = onOpen !== undefined;
 
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityState={hasDetail ? { expanded } : undefined}
+      accessibilityState={opens || !hasDetail ? undefined : { expanded }}
       accessibilityLabel={`${row.name}, kilometre ${row.km.toFixed(1)}`}
-      disabled={!hasDetail}
-      onPress={onToggle}
+      accessibilityHint={opens ? 'Opens this stretch of NLEX on a map' : undefined}
+      disabled={!opens && !hasDetail}
+      onPress={opens ? onOpen : onToggle}
       style={styles.exitRow}
     >
       {/*
@@ -290,7 +307,11 @@ const ExitRow: React.FC<ExitRowProps> = ({ row, first, last, expanded, onToggle 
           <View style={styles.kmBadge}>
             <Text style={styles.kmBadgeText}>KM {row.km.toFixed(1)}</Text>
           </View>
-          {hasDetail ? (
+          {/* Forward chevron where the row navigates, up/down where it expands
+              in place - the glyph is the only thing telling the two apart. */}
+          {opens ? (
+            <Ionicons name="chevron-forward" size={15} color={colors.textTertiary} />
+          ) : hasDetail ? (
             <Ionicons
               name={expanded ? 'chevron-up' : 'chevron-down'}
               size={15}
@@ -307,7 +328,7 @@ const ExitRow: React.FC<ExitRowProps> = ({ row, first, last, expanded, onToggle 
           </View>
         ) : null}
 
-        {expanded && hasDetail ? (
+        {!opens && expanded && hasDetail ? (
           <View style={styles.detail}>
             {row.detail!.map((line) => (
               <View key={line.label} style={styles.detailLine}>
@@ -330,6 +351,12 @@ const ExitRow: React.FC<ExitRowProps> = ({ row, first, last, expanded, onToggle 
 interface FlowStreaksProps {
   drift: Animated.AnimatedInterpolation<number>;
   count: number;
+  /**
+   * Which carriageway this sheen belongs to. Only used as a testID: the
+   * direction of travel is the one thing on this diagram that has been wrong
+   * before, and reading it off a screenshot cannot tell up from down.
+   */
+  direction: DirectionKey;
 }
 
 /**
@@ -338,13 +365,16 @@ interface FlowStreaksProps {
  * Sized to the pavement and clipped, so a streak slides out of sight at each
  * end of the road rather than escaping the card.
  */
-const FlowStreaks: React.FC<FlowStreaksProps> = ({ drift, count }) => {
+const FlowStreaks: React.FC<FlowStreaksProps> = ({ drift, count, direction }) => {
   const { isDark } = useTheme();
   const styles = useThemedStyles(makeStyles);
   const bands = isDark ? FLOW_BANDS_DARK : FLOW_BANDS_LIGHT;
   return (
     <View style={styles.flowClip}>
-      <Animated.View style={[styles.flowTrack, { transform: [{ translateY: drift }] }]}>
+      <Animated.View
+        testID={`corridor-flow-${direction}`}
+        style={[styles.flowTrack, { transform: [{ translateY: drift }] }]}
+      >
         {Array.from({ length: count }).map((_, index) => (
           <View key={index} style={[styles.streak, { top: index * FLOW_PERIOD - FLOW_PERIOD }]}>
             {bands.map((band, bandIndex) => (
@@ -361,6 +391,11 @@ export interface CorridorRoadProps {
   rows: RoadRow[];
   emptyTitle?: string;
   emptyText?: string;
+  /**
+   * Makes each row navigate rather than expand. Receives the row's `id`, which
+   * the live view sets to the exit_id the map screen looks up.
+   */
+  onOpenRow?: (id: string) => void;
 }
 
 /**
@@ -375,6 +410,7 @@ const CorridorRoad: React.FC<CorridorRoadProps> = ({
   rows,
   emptyTitle = 'Nothing to show',
   emptyText = 'Adjust the filters to see the corridor.',
+  onOpenRow,
 }) => {
   const { colors } = useTheme();
   const styles = useThemedStyles(makeStyles);
@@ -428,9 +464,10 @@ const CorridorRoad: React.FC<CorridorRoadProps> = ({
 
   const drift = useMemo(
     () => ({
-      // North is at the bottom of this list, so northbound runs down the page.
-      NB: travel.interpolate({ inputRange: [0, 1], outputRange: [0, FLOW_PERIOD] }),
-      SB: travel.interpolate({ inputRange: [0, 1], outputRange: [0, -FLOW_PERIOD] }),
+      // Matches `directionArrow`: northbound sheen travels up the page,
+      // southbound travels down. Negative translateY is up.
+      NB: travel.interpolate({ inputRange: [0, 1], outputRange: [0, -FLOW_PERIOD] }),
+      SB: travel.interpolate({ inputRange: [0, 1], outputRange: [0, FLOW_PERIOD] }),
     }),
     [travel],
   );
@@ -482,6 +519,7 @@ const CorridorRoad: React.FC<CorridorRoadProps> = ({
             last={index === rows.length - 1}
             expanded={expandedId === row.id}
             onToggle={() => setExpandedId((current) => (current === row.id ? null : row.id))}
+            onOpen={onOpenRow === undefined ? undefined : () => onOpenRow(row.id)}
           />
         ))}
 
@@ -496,11 +534,11 @@ const CorridorRoad: React.FC<CorridorRoadProps> = ({
         */}
         <View style={styles.flowOverlay}>
           <View style={styles.laneCol}>
-            <FlowStreaks drift={drift.NB} count={streakCount} />
+            <FlowStreaks drift={drift.NB} count={streakCount} direction="NB" />
           </View>
           <View style={styles.flowSpacer} />
           <View style={styles.laneCol}>
-            <FlowStreaks drift={drift.SB} count={streakCount} />
+            <FlowStreaks drift={drift.SB} count={streakCount} direction="SB" />
           </View>
         </View>
       </View>
