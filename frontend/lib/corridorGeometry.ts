@@ -114,12 +114,13 @@ const M_PER_DEG_LON = 111320 * Math.cos((15 * Math.PI) / 180);
 /**
  * Half the gap between the two carriageways, in metres.
  *
- * NLEX's carriageways sit roughly 20-30m apart centre to centre. Drawing them
- * at true separation makes them merge into one line at the zoom that shows a
- * whole stretch, so this is exaggerated enough to stay legible while still
- * reading as one divided highway rather than two roads.
+ * NLEX's carriageways sit roughly 20-30m apart centre to centre, so this is
+ * close to true. It was 55 while the map had no basemap and the only job was
+ * legibility; over real tiles that was plainly wrong - the two ribbons
+ * straddled the actual road with map showing between them, reading as three
+ * roads rather than one divided highway.
  */
-const CARRIAGEWAY_OFFSET_M = 55;
+const CARRIAGEWAY_OFFSET_M = 28;
 
 function metresBetween(a: LngLat, b: LngLat): number {
   return Math.hypot((a[0] - b[0]) * M_PER_DEG_LON, (a[1] - b[1]) * M_PER_DEG_LAT);
