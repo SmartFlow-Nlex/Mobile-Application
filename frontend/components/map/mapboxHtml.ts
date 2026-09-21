@@ -32,6 +32,8 @@ export interface MapboxHtmlOptions {
   /** Page background while tiles load, so it does not flash white on dark. */
   background: string;
   textColor: string;
+  /** Pixels at the bottom the road must stay clear of - see SegmentMapProps. */
+  bottomInset?: number;
 }
 
 /** GeoJSON wants [lon, lat]; everything else here is {latitude, longitude}. */
@@ -67,6 +69,7 @@ export function buildMapboxHtml(options: MapboxHtmlOptions): string {
     jams,
     exit: [segment.exit.longitude, segment.exit.latitude],
     exitName,
+    bottomInset: Math.max(0, Math.round(options.bottomInset ?? 0)),
     bounds: [
       [segment.bounds.minLon, segment.bounds.minLat],
       [segment.bounds.maxLon, segment.bounds.maxLat],
@@ -86,6 +89,9 @@ export function buildMapboxHtml(options: MapboxHtmlOptions): string {
   /* Mapbox requires attribution to stay visible; this only shrinks it to suit
      a panel a third of a phone screen tall. */
   .mapboxgl-ctrl-attrib { font-size: 9px; }
+  .mapboxgl-ctrl-bottom-left, .mapboxgl-ctrl-bottom-right {
+    bottom: ${Math.max(0, Math.round(options.bottomInset ?? 0))}px;
+  }
   #err {
     position:absolute; inset:0; display:none; align-items:center;
     justify-content:center; padding:20px; text-align:center;
@@ -100,6 +106,7 @@ export function buildMapboxHtml(options: MapboxHtmlOptions): string {
 <script>
 (function () {
   var D = ${json(payload)};
+  var D_BOTTOM = D.bottomInset || 0;
   var fail = function (why) {
     document.getElementById('err').style.display = 'flex';
     if (window.ReactNativeWebView) {
@@ -115,8 +122,11 @@ export function buildMapboxHtml(options: MapboxHtmlOptions): string {
       container: 'map',
       style: D.styleUrl,
       bounds: D.bounds,
-      // Room for the road to breathe, and for the attribution not to sit on it.
-      fitBoundsOptions: { padding: { top: 40, bottom: 44, left: 40, right: 40 } },
+      /* Room for the road to breathe, and for whatever covers the bottom of
+         the map - the sheet - not to sit on top of it. */
+      fitBoundsOptions: {
+        padding: { top: 56, bottom: 44 + D_BOTTOM, left: 40, right: 40 }
+      },
       attributionControl: true,
       // A picture of one stretch, not a navigation surface: turning or tilting
       // it only makes it harder to tell which way the road runs.

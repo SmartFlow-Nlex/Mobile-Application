@@ -21,6 +21,7 @@ const MapboxSegmentMap: React.FC<SegmentMapProps> = ({
   sbColor,
   jamColorFor,
   exitName,
+  bottomInset,
 }) => {
   const { colors } = useTheme();
   const styles = useThemedStyles(makeStyles);
@@ -42,8 +43,18 @@ const MapboxSegmentMap: React.FC<SegmentMapProps> = ({
         exitName,
         background: colors.surfaceMuted,
         textColor: colors.textSecondary,
+        bottomInset,
       }),
-    [segment, nbColor, sbColor, jamColorFor, exitName, colors.surfaceMuted, colors.textSecondary],
+    [
+      segment,
+      nbColor,
+      sbColor,
+      jamColorFor,
+      exitName,
+      bottomInset,
+      colors.surfaceMuted,
+      colors.textSecondary,
+    ],
   );
 
   return (

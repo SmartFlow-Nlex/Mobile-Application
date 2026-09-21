@@ -22,6 +22,12 @@ export interface SegmentMapProps {
   /** Neutral colour for furniture that is not a traffic reading. */
   quietColor: string;
   exitName: string;
+  /**
+   * How much of the bottom of the map is covered by something else - the
+   * corridor sheet. The road is framed above it, so pulling the sheet down
+   * does not reveal a stretch that was hidden underneath it all along.
+   */
+  bottomInset?: number;
 }
 
 export type { CorridorSegment, DirectionKey, LatLng };

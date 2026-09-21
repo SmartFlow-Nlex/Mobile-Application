@@ -45,6 +45,7 @@ const PlatformSegmentMap: React.FC<SegmentMapProps> = ({
   exitName,
   quietColor,
   jamColorFor,
+  bottomInset,
 }) => (
   <View style={styles.fill}>
     <MapView
@@ -55,6 +56,8 @@ const PlatformSegmentMap: React.FC<SegmentMapProps> = ({
       customMapStyle={Platform.OS === 'android' ? MUTED_MAP_STYLE : undefined}
       mapType={Platform.OS === 'ios' ? 'mutedStandard' : 'standard'}
       initialRegion={regionFor(segment.bounds)}
+      // Keeps the road above whatever covers the bottom of the map.
+      mapPadding={{ top: 0, right: 0, bottom: bottomInset ?? 0, left: 0 }}
       rotateEnabled={false}
       pitchEnabled={false}
       toolbarEnabled={false}

@@ -1,12 +1,13 @@
 import React, { useMemo, useState } from 'react';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useTheme, useThemedStyles } from '../../theme';
 import type { ThemePalette } from '../../theme';
 import { Typography } from '../../constants/typography';
 import { toneFor } from '../../components/dashboard/severity';
+import BottomSheet from '../../components/BottomSheet';
 import SegmentMap from '../../components/map/SegmentMap';
 import { centrelineMatches, segmentForExit } from '../../lib/corridorGeometry';
 import type { DirectionKey } from '../../lib/corridorGeometry';
@@ -31,6 +32,12 @@ import type { CongestionLevel } from '../../lib/trafficModel';
  * It reads the same live feed as the list rather than taking a snapshot
  * through route params, so a reading cannot go stale while the screen is open,
  * and a deep link to this URL works with no list behind it.
+ *
+ * Laid out the way a maps app lays this out: the map IS the page, and the
+ * readings ride over it in a sheet the user can push down to see the road or
+ * pull up to read. The map was a 320pt card with the cards scrolling beneath
+ * it, which meant the thing the screen is about got a third of the screen and
+ * could not be made bigger.
  */
 
 const statusLabel: Record<CorridorStatusValue, string> = {
@@ -268,6 +275,7 @@ export default function CorridorExitScreen(): React.ReactElement {
   const { colors } = useTheme();
   const styles = useThemedStyles(makeStyles);
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ exitId?: string }>();
   const { data, isLoading, error, refresh } = useCorridorStatus();
 
@@ -409,79 +417,137 @@ export default function CorridorExitScreen(): React.ReactElement {
     return toneFor(jam === undefined ? 'severe' : jamTone(jam), colors).solid;
   };
 
-  return (
-    <SafeAreaView edges={['top']} style={styles.safeArea}>
-      <Stack.Screen options={{ headerShown: false }} />
-      {header(exit.display_name)}
+  /*
+   * What stays visible with the sheet pushed all the way down: the grab bar,
+   * the interchange's name and the two status pills. Enough to know where you
+   * are and whether it is moving, without covering the road.
+   */
+  const PEEK = 118;
 
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <View style={styles.mapCard}>
-          <SegmentMap
-            segment={segment}
-            nbColor={baseColourFor(nb)}
-            sbColor={baseColourFor(sb)}
-            jamColorFor={jamColourFor}
-            quietColor={colors.textTertiary}
-            exitName={exit.display_name}
-          />
-        </View>
+  const worst = (a: CorridorDirectionStatus, b: CorridorDirectionStatus): CorridorStatusValue =>
+    a.status === 'congested' || b.status === 'congested'
+      ? 'congested'
+      : a.status === 'slow' || b.status === 'slow'
+        ? 'slow'
+        : 'clear';
 
-        <View style={styles.summaryRow}>
-          <View style={styles.kmBadge}>
-            <Text style={styles.kmBadgeText}>KM {exit.km.toFixed(1)}</Text>
-          </View>
-          <Text style={styles.summaryText} numberOfLines={1}>
-            {exit.node_type}
-          </Text>
-        </View>
-
-        {/*
-          Says out loud how much road is coloured, because the colours are a
-          claim about exactly this stretch and nothing beyond it.
-        */}
-        <Text style={styles.stretchNote}>
-          Showing {segment.lengthKm.toFixed(1)} km of NLEX
-          {segment.startLabel !== null || segment.endLabel !== null
-            ? ` - the stretch between ${segment.startLabel ?? 'the southern end'} and ${
-                segment.endLabel ?? 'the northern end'
-              }`
-            : ''}
-          .
-          {segment.widenedForJams
-            ? ' Widened past that to show a queue that runs beyond it.'
-            : ''}
-          {hasJamDetail ? ' Green is running clear; only the queues are marked.' : ''}
+  const pill = (title: string, status: CorridorDirectionStatus): React.ReactElement => {
+    const tone = toneFor(status.hasRamp ? statusTone[status.status] : 'low', colors);
+    const speed = formatSpeed(status.speedKmh);
+    return (
+      <View style={[styles.peekPill, { backgroundColor: tone.background }]}>
+        <Text style={[styles.peekPillLabel, { color: tone.text }]}>{title}</Text>
+        <Text style={[styles.peekPillValue, { color: tone.text }]}>
+          {status.hasRamp ? (speed ?? statusLabel[status.status]) : 'no ramp'}
         </Text>
+      </View>
+    );
+  };
 
-        <CarriagewayCard
-          title="Northbound"
-          arrow="arrow-up"
-          status={nb}
-          hasJamDetail={hasJamDetail}
-        />
-        <CarriagewayCard
-          title="Southbound"
-          arrow="arrow-down"
-          status={sb}
-          hasJamDetail={hasJamDetail}
-        />
+  return (
+    <View style={styles.page}>
+      <Stack.Screen options={{ headerShown: false }} />
 
-        <View style={styles.footer}>
-          <Ionicons name="location-outline" size={12} color={colors.textTertiary} />
-          <Text style={styles.footerText}>
-            {exit.latitude.toFixed(4)}, {exit.longitude.toFixed(4)}
+      {/* The map is the page. Everything else floats over it. */}
+      <View style={StyleSheet.absoluteFill}>
+        <SegmentMap
+          segment={segment}
+          nbColor={baseColourFor(nb)}
+          sbColor={baseColourFor(sb)}
+          jamColorFor={jamColourFor}
+          quietColor={colors.textTertiary}
+          exitName={exit.display_name}
+          bottomInset={PEEK}
+        />
+      </View>
+
+      {/*
+        Floating rather than in a bar: a full-width header would eat the top of
+        the map for one button. Inset by hand because the page deliberately
+        takes no safe-area edges - the map runs under the status bar.
+      */}
+      <View style={[styles.floatingBar, { top: insets.top + 8 }]}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+          onPress={goBack}
+          style={({ pressed }) => [styles.floatingButton, pressed && styles.pressedDim]}
+        >
+          <Ionicons name="arrow-back" size={20} color={colors.text} />
+        </Pressable>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Refresh this stretch"
+          onPress={refresh}
+          style={({ pressed }) => [styles.floatingButton, pressed && styles.pressedDim]}
+        >
+          <Ionicons name="refresh" size={18} color={colors.text} />
+        </Pressable>
+      </View>
+
+      <BottomSheet
+        peekHeight={PEEK}
+        header={
+          <View style={styles.peek}>
+            <View style={styles.peekTop}>
+              <Text style={styles.peekTitle} numberOfLines={1}>
+                {exit.display_name}
+              </Text>
+              <View style={styles.kmBadge}>
+                <Text style={styles.kmBadgeText}>KM {exit.km.toFixed(1)}</Text>
+              </View>
+            </View>
+            <View style={styles.peekPills}>
+              {pill('NB', nb)}
+              {pill('SB', sb)}
+            </View>
+          </View>
+        }
+      >
+        <ScrollView
+          contentContainerStyle={styles.sheetContent}
+          showsVerticalScrollIndicator={false}
+        >
+          {/*
+            Says out loud how much road is coloured, because the colours are a
+            claim about exactly this stretch and nothing beyond it.
+          */}
+          <Text style={styles.stretchNote}>
+            Showing {segment.lengthKm.toFixed(1)} km of NLEX
+            {segment.startLabel !== null || segment.endLabel !== null
+              ? ` - the stretch between ${segment.startLabel ?? 'the southern end'} and ${
+                  segment.endLabel ?? 'the northern end'
+                }`
+              : ''}
+            .
+            {segment.widenedForJams
+              ? ' Widened past that to show a queue that runs beyond it.'
+              : ''}
+            {hasJamDetail ? ' Green is running clear; only the queues are marked.' : ''}
           </Text>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Refresh this stretch"
-            onPress={refresh}
-            style={({ pressed }) => [styles.refreshButton, pressed && styles.pressedDim]}
-          >
-            <Ionicons name="refresh" size={14} color={colors.accent} />
-          </Pressable>
-        </View>
-      </ScrollView>
-    </SafeAreaView>
+
+          <CarriagewayCard
+            title="Northbound"
+            arrow="arrow-up"
+            status={nb}
+            hasJamDetail={hasJamDetail}
+          />
+          <CarriagewayCard
+            title="Southbound"
+            arrow="arrow-down"
+            status={sb}
+            hasJamDetail={hasJamDetail}
+          />
+
+          <View style={styles.footer}>
+            <Ionicons name="location-outline" size={12} color={colors.textTertiary} />
+            <Text style={styles.footerText}>
+              {exit.latitude.toFixed(4)}, {exit.longitude.toFixed(4)} · {exit.node_type}
+            </Text>
+          </View>
+        </ScrollView>
+      </BottomSheet>
+    </View>
   );
 }
 
@@ -490,6 +556,77 @@ const makeStyles = (c: ThemePalette) =>
     safeArea: {
       flex: 1,
       backgroundColor: c.background,
+    },
+    page: {
+      flex: 1,
+      backgroundColor: c.surfaceMuted,
+    },
+    floatingBar: {
+      position: 'absolute',
+      left: 16,
+      right: 16,
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+    },
+    /* Opaque, not translucent: these sit over map tiles whose colour is not
+       ours to predict, and a see-through button over a dark tile disappears. */
+    floatingButton: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: c.surface,
+      borderWidth: 1,
+      borderColor: c.border,
+      shadowColor: '#000',
+      shadowOpacity: 0.16,
+      shadowRadius: 8,
+      shadowOffset: { width: 0, height: 2 },
+      elevation: 5,
+    },
+    peek: {
+      paddingHorizontal: 16,
+      gap: 9,
+    },
+    peekTop: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+    },
+    peekTitle: {
+      flex: 1,
+      color: c.text,
+      fontSize: Typography.fontSize.lg,
+      fontWeight: '800',
+    },
+    peekPills: {
+      flexDirection: 'row',
+      gap: 8,
+    },
+    peekPill: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'baseline',
+      gap: 6,
+      paddingHorizontal: 11,
+      paddingVertical: 7,
+      borderRadius: 10,
+    },
+    peekPillLabel: {
+      fontSize: 10,
+      fontWeight: '800',
+      letterSpacing: 0.5,
+    },
+    peekPillValue: {
+      fontSize: Typography.fontSize.sm,
+      fontWeight: '800',
+    },
+    sheetContent: {
+      paddingHorizontal: 16,
+      paddingTop: 14,
+      paddingBottom: 28,
+      gap: 12,
     },
     pressedDim: {
       opacity: 0.65,
@@ -519,30 +656,7 @@ const makeStyles = (c: ThemePalette) =>
       fontWeight: '800',
     },
 
-    content: {
-      paddingHorizontal: 16,
-      paddingBottom: 32,
-      gap: 12,
-    },
-    /*
-     * A fixed height rather than an aspect ratio: the map has to be tall
-     * enough to show a stretch of road with context around it, and tall
-     * enough that the cards below still hint at being scrollable.
-     */
-    mapCard: {
-      height: 320,
-      borderRadius: 18,
-      overflow: 'hidden',
-      borderWidth: 1,
-      borderColor: c.border,
-      backgroundColor: c.surfaceMuted,
-    },
 
-    summaryRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 10,
-    },
     kmBadge: {
       paddingHorizontal: 9,
       paddingVertical: 4,
@@ -554,13 +668,6 @@ const makeStyles = (c: ThemePalette) =>
       fontSize: 10,
       fontWeight: '800',
       letterSpacing: 0.4,
-    },
-    summaryText: {
-      flex: 1,
-      color: c.textSecondary,
-      fontSize: Typography.fontSize.xs,
-      fontWeight: '700',
-      textTransform: 'capitalize',
     },
     stretchNote: {
       color: c.textTertiary,
@@ -691,14 +798,6 @@ const makeStyles = (c: ThemePalette) =>
       color: c.textTertiary,
       fontSize: Typography.fontSize.xs,
       fontWeight: '600',
-    },
-    refreshButton: {
-      width: 32,
-      height: 32,
-      borderRadius: 11,
-      alignItems: 'center',
-      justifyContent: 'center',
-      backgroundColor: c.primarySoft,
     },
 
     stateCard: {
