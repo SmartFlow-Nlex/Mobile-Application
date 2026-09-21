@@ -125,6 +125,16 @@ export interface RoadDirectionReading {
   level: CongestionLevel | null;
   /** The headline figure: "2 km/h", "Moderate", "+8 min". */
   value: string;
+  /**
+   * Where the queues actually sit within this stretch, as fractions of the row
+   * from top to bottom, each with its own severity.
+   *
+   * Given, the lane is drawn running clear and only these are coloured - which
+   * is the honest picture: a 190 m queue in a 900 m stretch is a fifth of the
+   * road, not all of it. Absent, the whole lane takes `level`, which is all
+   * that can be said when the feed has not told us where the traffic is.
+   */
+  bands?: { start: number; end: number; level: CongestionLevel }[];
 }
 
 export interface RoadRow {
@@ -148,6 +158,8 @@ interface RoadLaneProps {
   active: boolean;
   capStart?: boolean;
   capEnd?: boolean;
+  /** Queues on this stretch, as fractions of the bar with their own colours. */
+  bands?: { start: number; end: number; color: string }[];
 }
 
 /**
@@ -161,7 +173,13 @@ interface RoadLaneProps {
  * travelling dashes, and the whole card fizzed. The direction cue lives on the
  * two header arrows instead - two moving glyphs for the entire screen.
  */
-const RoadLane: React.FC<RoadLaneProps> = ({ color, active, capStart = false, capEnd = false }) => {
+const RoadLane: React.FC<RoadLaneProps> = ({
+  color,
+  active,
+  capStart = false,
+  capEnd = false,
+  bands,
+}) => {
   const styles = useThemedStyles(makeStyles);
   return (
     <View
@@ -172,6 +190,30 @@ const RoadLane: React.FC<RoadLaneProps> = ({ color, active, capStart = false, ca
         capEnd && styles.roadBarCapEnd,
       ]}
     >
+      {/*
+        The queues, laid over the running-clear pavement.
+
+        Percentages rather than measured pixels: the row's height is set by its
+        own content - a two-line exit name makes it taller - so a band computed
+        against a fixed height would drift down the road on exactly the rows
+        that are tallest. A minimum height keeps a short queue visible; a 190 m
+        queue in a 6 km stretch is 3% of the row, which rounds to nothing.
+      */}
+      {(bands ?? []).map((band, index) => (
+        <View
+          key={index}
+          pointerEvents="none"
+          style={[
+            styles.queueBand,
+            {
+              top: `${band.start * 100}%`,
+              height: `${Math.max((band.end - band.start) * 100, 4)}%`,
+              backgroundColor: band.color,
+            },
+          ]}
+        />
+      ))}
+
       {active ? (
         <>
           {/*
@@ -258,13 +300,28 @@ const ExitRow: React.FC<ExitRowProps> = ({ row, first, last, expanded, onToggle,
 
   const lane = (key: DirectionKey): React.ReactElement => {
     const reading = row[key];
+    /*
+     * With bands, the pavement under them reads CLEAR rather than taking the
+     * stretch's status - the queues carry the colour. Grey is reserved for "no
+     * carriageway here", so it is never used for road that is simply flowing.
+     */
+    const base =
+      reading.level === null
+        ? colors.border
+        : toneFor(reading.bands === undefined ? reading.level : 'low', colors).solid;
+
     return (
       <View style={styles.laneCol}>
         <RoadLane
-          color={reading.level === null ? colors.border : toneFor(reading.level, colors).solid}
+          color={base}
           active={reading.level !== null}
           capStart={first}
           capEnd={last}
+          bands={reading.bands?.map((band) => ({
+            start: band.start,
+            end: band.end,
+            color: toneFor(band.level, colors).solid,
+          }))}
         />
       </View>
     );
@@ -740,6 +797,15 @@ const makeStyles = (c: ThemePalette) =>
     },
     edgeLineEnd: {
       right: 4.5,
+    },
+    /*
+     * Full bleed across the pavement and square-ended, so a queue spanning two
+     * rows meets itself at the boundary instead of showing a seam.
+     */
+    queueBand: {
+      position: 'absolute',
+      left: 0,
+      right: 0,
     },
     roadDashes: {
       flex: 1,

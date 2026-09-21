@@ -197,6 +197,139 @@ function lengthKmOf(line: LngLat[]): number {
   return total / 1000;
 }
 
+/** Where an exit's stretch begins and ends on the centreline. */
+export interface StretchRange {
+  from: number;
+  to: number;
+  /** The vertex the interchange itself sits on. */
+  here: number;
+}
+
+/**
+ * The run of centreline an exit answers for.
+ *
+ * Every vertex whose nearest interchange is this one. That is not an
+ * approximation of the attribution rule, it IS the rule: the backend gives a
+ * jam to whichever exit its midpoint is closest to, by this same straight-line
+ * metric. So this is exactly the road whose jams produced that exit's reading.
+ *
+ * Cutting at the halfway VERTEX between neighbours was tried first and is
+ * subtly wrong, because the vertices are not evenly spaced - 108 m apart on
+ * average but far longer on the straight rural runs - so the halfway vertex is
+ * not the halfway point. It gave Pulilan 10.6 km of road for a gap that only
+ * entitles it to about 9.
+ */
+export function stretchRangeForExit(
+  exits: CorridorExit[],
+  exitId: number,
+): StretchRange | null {
+  const ordered = [...exits].sort((a, b) => a.km - b.km);
+  const position = ordered.findIndex((candidate) => candidate.exit_id === exitId);
+  if (position === -1) {
+    return null;
+  }
+
+  const exit = ordered[position];
+  const previous = position > 0 ? ordered[position - 1] : null;
+  const next = position < ordered.length - 1 ? ordered[position + 1] : null;
+  const here = nearestIndex(exit.longitude, exit.latitude);
+
+  const walk = (step: number): number => {
+    let index = here;
+    while (index + step >= 0 && index + step < points.length) {
+      const candidate = points[index + step];
+      const own = metresBetween(candidate, [exit.longitude, exit.latitude]);
+      const rival = Math.min(
+        previous === null
+          ? Infinity
+          : metresBetween(candidate, [previous.longitude, previous.latitude]),
+        next === null ? Infinity : metresBetween(candidate, [next.longitude, next.latitude]),
+      );
+      if (rival < own) {
+        // One vertex past the boundary, so neighbouring stretches meet rather
+        // than leaving a gap of unclaimed road between them.
+        return index + step;
+      }
+      index += step;
+    }
+    return index;
+  };
+
+  const from = Math.max(0, Math.min(walk(-1), here));
+  const to = Math.min(points.length - 1, Math.max(walk(1), here));
+  return to - from < 1 ? null : { from, to, here };
+}
+
+/**
+ * Distance from the start of the centreline to each vertex.
+ *
+ * Built once. Bands have to be placed by distance, not by vertex index: the
+ * spacing runs from tens of metres on the curves to hundreds on the straights,
+ * so a band positioned by index lands in the wrong place on the drawn road.
+ */
+const cumulative: number[] = (() => {
+  const out = new Array<number>(points.length);
+  out[0] = 0;
+  for (let i = 1; i < points.length; i += 1) {
+    out[i] = out[i - 1] + metresBetween(points[i - 1], points[i]);
+  }
+  return out;
+})();
+
+/** A queue's position within one row of the corridor diagram, top to bottom. */
+export interface QueueBand {
+  /** 0 at the top of the row, 1 at the bottom. */
+  start: number;
+  end: number;
+  /** Which entry of the direction's jam list this came from. */
+  index: number;
+}
+
+/**
+ * Where an exit's queues fall within its own row of the diagram.
+ *
+ * `jams` should be EVERY queue on that carriageway, from all exits, not just
+ * the ones attributed here. A queue runs where it runs: one given to NLEX
+ * Harbor Link stretched from vertex 8 to 57 while that interchange's stretch is
+ * roughly 15 to 40, so it genuinely covers part of its neighbours' rows too.
+ * Passing only this exit's own queues would leave those neighbours drawn clear
+ * while traffic was standing on them.
+ *
+ * Returned as fractions rather than pixels, because the row's height is a
+ * layout decision the caller owns.
+ */
+export function queueBandsForRow(
+  exits: CorridorExit[],
+  exitId: number,
+  jams: (JamRange & { index: number })[],
+): QueueBand[] {
+  const stretch = stretchRangeForExit(exits, exitId);
+  if (stretch === null) {
+    return [];
+  }
+
+  const startM = cumulative[stretch.from];
+  const span = cumulative[stretch.to] - startM;
+  if (span <= 0) {
+    return [];
+  }
+
+  const bands: QueueBand[] = [];
+  for (const jam of jams) {
+    const lo = Math.max(stretch.from, Math.min(jam.startIndex, jam.endIndex));
+    const hi = Math.min(stretch.to, Math.max(jam.startIndex, jam.endIndex));
+    if (hi <= lo) {
+      continue;   // this queue does not reach into this row
+    }
+    bands.push({
+      start: Math.max(0, Math.min(1, (cumulative[lo] - startM) / span)),
+      end: Math.max(0, Math.min(1, (cumulative[hi] - startM) / span)),
+      index: jam.index,
+    });
+  }
+  return bands;
+}
+
 /**
  * The stretch of road an exit is responsible for.
  *
@@ -231,51 +364,11 @@ export function segmentForExit(
   const previous = position > 0 ? ordered[position - 1] : null;
   const next = position < ordered.length - 1 ? ordered[position + 1] : null;
 
-  const here = nearestIndex(exit.longitude, exit.latitude);
-
-  /*
-   * The stretch is every vertex whose nearest interchange is this one.
-   *
-   * That is not an approximation of the attribution rule, it IS the rule: the
-   * backend gives a jam to whichever exit its midpoint is closest to, by this
-   * same straight-line metric. So the run of road that answers to this exit is
-   * exactly the run of centreline closer to it than to any other - and
-   * colouring precisely that is the difference between "this stretch is
-   * congested" being a claim about the right piece of tarmac or the wrong one.
-   *
-   * Cutting at the halfway VERTEX between neighbours was tried first and is
-   * subtly wrong, because the vertices are not evenly spaced - 108 m apart on
-   * average but far longer on the straight rural runs - so the halfway vertex
-   * is not the halfway point. It gave Pulilan 10.6 km of road for a gap that
-   * only entitles it to about 9.
-   */
-  const walk = (step: number): number => {
-    let index = here;
-    while (index + step >= 0 && index + step < points.length) {
-      const candidate = points[index + step];
-      const own = metresBetween(candidate, [exit.longitude, exit.latitude]);
-      const rival = Math.min(
-        previous === null
-          ? Infinity
-          : metresBetween(candidate, [previous.longitude, previous.latitude]),
-        next === null ? Infinity : metresBetween(candidate, [next.longitude, next.latitude]),
-      );
-      if (rival < own) {
-        // One vertex past the boundary, so neighbouring stretches meet rather
-        // than leaving a gap of unclaimed road between them.
-        return index + step;
-      }
-      index += step;
-    }
-    return index;
-  };
-
-  const stretchFrom = Math.max(0, Math.min(walk(-1), here));
-  const stretchTo = Math.min(points.length - 1, Math.max(walk(1), here));
-
-  if (stretchTo - stretchFrom < 1) {
+  const stretch = stretchRangeForExit(exits, exitId);
+  if (stretch === null) {
     return null;
   }
+  const { from: stretchFrom, to: stretchTo, here } = stretch;
 
   /*
    * A queue does not respect the halfway line. One attributed to NLEX Harbor

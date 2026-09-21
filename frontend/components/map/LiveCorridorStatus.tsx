@@ -6,7 +6,13 @@ import { useTheme, useThemedStyles } from '../../theme';
 import type { ThemePalette } from '../../theme';
 import { Typography } from '../../constants/typography';
 import { CongestionLevel } from '../../lib/trafficModel';
-import { CorridorDirectionStatus, CorridorExit, CorridorStatusValue } from '../../lib/corridorApi';
+import {
+  CorridorDirectionStatus,
+  CorridorExit,
+  CorridorJam,
+  CorridorStatusValue,
+} from '../../lib/corridorApi';
+import { centrelineMatches, queueBandsForRow } from '../../lib/corridorGeometry';
 import { useCorridorStatus } from '../../hooks/useCorridorStatus';
 import { toneFor } from '../dashboard/severity';
 import CorridorRoad, {
@@ -55,7 +61,23 @@ function formatSpeed(speedKmh: number | null): string | null {
   return `${Math.round(speedKmh)} km/h`;
 }
 
-function readingFor(status: CorridorDirectionStatus): RoadDirectionReading {
+/**
+ * One queue's severity, by the same bands the backend grades a stretch with.
+ *
+ * A carriageway can hold a crawl and a mere slowdown at once, and drawing both
+ * in the stretch's overall colour would say something the feed did not.
+ */
+function jamTone(jam: CorridorJam): CongestionLevel {
+  if ((jam.level !== null && jam.level >= 3) || (jam.speedKmh !== null && jam.speedKmh < 10)) {
+    return 'severe';
+  }
+  return jam.level === 0 ? 'low' : 'moderate';
+}
+
+function readingFor(
+  status: CorridorDirectionStatus,
+  bands: RoadDirectionReading['bands'],
+): RoadDirectionReading {
   if (!status.hasRamp) {
     return { level: null, value: 'no ramp' };
   }
@@ -63,6 +85,7 @@ function readingFor(status: CorridorDirectionStatus): RoadDirectionReading {
   return {
     level: statusTone[status.status] ?? 'low',
     value: speed ?? statusLabel[status.status],
+    bands,
   };
 }
 
@@ -79,13 +102,15 @@ function detailLineFor(status: CorridorDirectionStatus): string {
   return parts.length === 0 ? 'No reading' : parts.join(' · ');
 }
 
-function rowFor(exit: CorridorExit): RoadRow {
+type Bands = Record<DirectionKey, RoadDirectionReading['bands']>;
+
+function rowFor(exit: CorridorExit, bands: Bands): RoadRow {
   return {
     id: String(exit.exit_id),
     name: exit.display_name,
     km: exit.km,
-    NB: readingFor(exit.directions.NB),
-    SB: readingFor(exit.directions.SB),
+    NB: readingFor(exit.directions.NB, bands.NB),
+    SB: readingFor(exit.directions.SB, bands.SB),
     detail: [
       { label: 'Northbound', value: detailLineFor(exit.directions.NB) },
       { label: 'Southbound', value: detailLineFor(exit.directions.SB) },
@@ -140,6 +165,51 @@ const LiveCorridorStatus: React.FC = () => {
 
   const [problemsOnly, setProblemsOnly] = useState<boolean>(false);
 
+  /*
+   * Where every queue on the corridor sits, per carriageway.
+   *
+   * Collected across ALL exits rather than per row, because a queue does not
+   * stop at the halfway line between interchanges - one attributed to NLEX
+   * Harbor Link ran well into its neighbours' stretches. Each row is then given
+   * the queues that actually reach into it, so a row shows traffic standing on
+   * it whether or not that traffic was booked to its own exit.
+   *
+   * Only trusted when the backend's indices point into the same centreline this
+   * app ships; otherwise there are no bands and the lanes take their stretch's
+   * status colour, exactly as before.
+   */
+  const bandsByExit = useMemo((): Map<number, Bands> => {
+    const out = new Map<number, Bands>();
+    if (data === null || !centrelineMatches(data.geometry?.centrelineVertices)) {
+      return out;
+    }
+
+    const all: Record<DirectionKey, (CorridorJam & { index: number })[]> = { NB: [], SB: [] };
+    for (const exit of data.exits) {
+      for (const key of ['NB', 'SB'] as DirectionKey[]) {
+        const jams = exit.directions[key].jams;
+        if (jams === undefined) {
+          return out;   // a backend that predates queues: no bands at all
+        }
+        jams.forEach((jam, index) => all[key].push({ ...jam, index }));
+      }
+    }
+
+    for (const exit of data.exits) {
+      const forExit = { NB: undefined, SB: undefined } as Bands;
+      for (const key of ['NB', 'SB'] as DirectionKey[]) {
+        const found = queueBandsForRow(data.exits, exit.exit_id, all[key]);
+        forExit[key] = found.map((band) => ({
+          start: band.start,
+          end: band.end,
+          level: jamTone(all[key][band.index]),
+        }));
+      }
+      out.set(exit.exit_id, forExit);
+    }
+    return out;
+  }, [data]);
+
   const rows: RoadRow[] = useMemo(() => {
     if (data === null) {
       return [];
@@ -154,8 +224,10 @@ const LiveCorridorStatus: React.FC = () => {
         }),
       );
     }
-    return exits.map(rowFor);
-  }, [data, problemsOnly]);
+    return exits.map((exit) =>
+      rowFor(exit, bandsByExit.get(exit.exit_id) ?? { NB: undefined, SB: undefined }),
+    );
+  }, [data, problemsOnly, bandsByExit]);
 
   // Nothing to show and not still trying: the feed is genuinely unavailable.
   const isOffline = data === null && !isLoading;
