@@ -42,16 +42,22 @@ const EXITS_PATH = '/api/map-comparison/exits';
  * waking it takes 20-25s, during which Render answers 502. Every first request
  * after an idle spell therefore failed, and the app showed "data unavailable"
  * on a system that was merely starting up.
+ *
+ * This bounds the whole wake, retries included, and sits under the app's own
+ * 60s timeout so the app still gets an answer rather than a dropped request.
  */
-const REQUEST_TIMEOUT_MS = 25000;
+const REQUEST_TIMEOUT_MS = 50000;
 
 /**
- * Render answers 502/503 while a sleeping service starts. That is "wait", not
- * "broken", so it is worth one more try - by then the service is usually awake.
- * Anything else, including a 404 or a 500, is a real failure and is reported.
+ * What Render answers while a sleeping service starts. That is "wait", not
+ * "broken", so keep trying until the deadline above. 429 is on the list
+ * because a request from this service to the sleeping dashboard is turned
+ * away with 429 at once, while a request from a laptop is simply held for the
+ * 20-25s the wake takes. Anything else, including a 404 or a 500, is a real
+ * failure and is reported.
  */
-const COLD_START_CODES = new Set([502, 503, 504]);
-const RETRY_DELAY_MS = 1500;
+const COLD_START_CODES = new Set([429, 502, 503, 504]);
+const RETRY_DELAY_MS = 3000;
 
 const wait = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
@@ -311,12 +317,27 @@ function buildCorridorStatus(feed: RealtimeFeed, exits: NlexExit[]): CorridorSta
 }
 
 let cached: { at: number; result: CorridorResult } | null = null;
+/**
+ * The fetch already under way, if any. While the dashboard wakes, the app's
+ * poll and a chatbot question can arrive together; sharing one attempt keeps
+ * them from each hammering a service that is still starting.
+ */
+let inFlight: Promise<CorridorResult> | null = null;
 
 export async function getCorridorStatus(): Promise<CorridorResult> {
   if (cached !== null && Date.now() - cached.at < CACHE_TTL_MS) {
     return cached.result;
   }
+  if (inFlight === null) {
+    inFlight = fetchCorridorStatus().finally(() => {
+      inFlight = null;
+    });
+  }
+  return inFlight;
+}
 
+async function fetchCorridorStatus(): Promise<CorridorResult> {
+  const deadline = Date.now() + REQUEST_TIMEOUT_MS;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
@@ -324,16 +345,17 @@ export async function getCorridorStatus(): Promise<CorridorResult> {
   try {
     // Both in flight together: the roster is small and rarely changes, but it
     // keys the derivation, so there is nothing to show without it either.
-    /** One retry, and only while the upstream is waking. */
+    /** Retries only while the upstream is waking, and only until the deadline. */
     const get = async (path: string): Promise<Response> => {
-      const first = await fetch(`${CORRIDOR_API_BASE_URL}${path}`, {
-        signal: controller.signal,
-      });
-      if (!COLD_START_CODES.has(first.status)) {
-        return first;
+      for (;;) {
+        const response = await fetch(`${CORRIDOR_API_BASE_URL}${path}`, {
+          signal: controller.signal,
+        });
+        if (!COLD_START_CODES.has(response.status) || Date.now() + RETRY_DELAY_MS >= deadline) {
+          return response;
+        }
+        await wait(RETRY_DELAY_MS);
       }
-      await wait(RETRY_DELAY_MS);
-      return fetch(`${CORRIDOR_API_BASE_URL}${path}`, { signal: controller.signal });
     };
 
     const [feedResponse, exitsResponse] = await Promise.all([
@@ -373,7 +395,11 @@ export async function getCorridorStatus(): Promise<CorridorResult> {
     clearTimeout(timeout);
   }
 
-  cached = { at: Date.now(), result };
+  // Only a good answer is worth keeping. Caching a failure meant a Retry
+  // tapped moments later got the same error back without even trying.
+  if (result.available) {
+    cached = { at: Date.now(), result };
+  }
   return result;
 }
 
