@@ -35,6 +35,35 @@ const statusTone: Record<CorridorStatusValue, CongestionLevel> = {
   congested: 'severe',
 };
 
+/**
+ * What to actually do when nothing answers, which depends on where we were
+ * calling.
+ *
+ * The old text told the user to check they were "on the same Wi-Fi" no matter
+ * what. That advice was written when the backend ran on a teammate's laptop and
+ * the address was a LAN one. It now points at a public URL, where being on the
+ * same Wi-Fi is beside the point - and worse, it sends someone hunting for a
+ * problem on their own network when the one network that cannot reach the
+ * service is often the Wi-Fi they are already on. Seen exactly that: an ISP
+ * dropping the host, where switching to mobile data is the fix and "check
+ * you're on the same Wi-Fi" is the opposite of it.
+ */
+function unreachableAdvice(url: string | null): string {
+  const host = url === null ? '' : (/^https?:\/\/([^/:]+)/.exec(url)?.[1] ?? '');
+
+  /* A LAN address - 192.168.x, 10.x, 172.16-31.x - or a bare hostname means
+     the service is on this network, and being on it is the whole question. */
+  const isLocal =
+    /^(10\.|192\.168\.|127\.|localhost$)/.test(host) ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(host) ||
+    (host !== '' && !host.includes('.'));
+
+  if (isLocal) {
+    return 'Nothing answered at this address. Check that the SmartFlow server is running and that this phone is on the same Wi-Fi as it.';
+  }
+  return 'Nothing answered at this address. The service may be starting up - it sleeps when idle and can take half a minute to wake. If it keeps failing, try mobile data instead of Wi-Fi: some networks block this host.';
+}
+
 function formatFeedAge(ageMinutes: number | null): string {
   if (ageMinutes === null) {
     return 'no data yet';
@@ -271,9 +300,7 @@ const LiveCorridorStatus: React.FC = () => {
           {unreachable ? 'Cannot reach the backend' : 'The backend returned an error'}
         </Text>
         <Text style={styles.stateText}>
-          {unreachable
-            ? 'Nothing answered at this address. Check that the SmartFlow dashboard server is running and that your phone is on the same Wi-Fi.'
-            : error.message}
+          {unreachable ? unreachableAdvice(error?.url ?? null) : error.message}
         </Text>
         {error?.url !== null && error?.url !== undefined ? (
           <Text style={styles.stateUrl} numberOfLines={2}>
