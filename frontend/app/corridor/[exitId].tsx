@@ -498,8 +498,10 @@ export default function CorridorExitScreen(): React.ReactElement {
               </View>
             </View>
             <View style={styles.peekPills}>
-              {pill('NB', nb)}
+              {/* Southbound left, northbound right - the same sides as the
+                  corridor diagram on the list screen. */}
               {pill('SB', sb)}
+              {pill('NB', nb)}
             </View>
           </View>
         }

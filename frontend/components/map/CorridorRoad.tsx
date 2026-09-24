@@ -10,27 +10,27 @@ import { toneFor } from '../dashboard/severity';
 export type DirectionKey = 'NB' | 'SB';
 
 /** Both carriageways, always - reading one without the other is half a road. */
-const BOTH: DirectionKey[] = ['NB', 'SB'];
+/**
+ * Which carriageway sits on which side of the diagram. Southbound on the left,
+ * northbound on the right, as the team asked. The header caps, each row's
+ * lanes, the flow overlay and the reading chips all read these, so the sides
+ * cannot drift apart.
+ */
+const LEFT_LANE: DirectionKey = 'SB';
+const RIGHT_LANE: DirectionKey = 'NB';
+const BOTH: DirectionKey[] = [LEFT_LANE, RIGHT_LANE];
 
 export const directionLabel: Record<DirectionKey, string> = { NB: 'NB', SB: 'SB' };
 /**
  * Which way each carriageway is DRAWN on this diagram.
  *
- * Northbound points up and southbound points down, because that is the
- * convention a reader brings to any road diagram: up is north. This is a
- * presentation choice, asked for by the team, and it is worth being clear that
- * it does not follow the order of the list beneath it.
+ * Northbound points up and southbound points down: up is north. The rows are
+ * drawn with Sta. Ines (latitude 15.222) at the top and Balintawak (14.679) at
+ * the bottom - see `northAtTop` - so an upward arrow really is travel along
+ * the list towards Sta. Ines.
  *
- * The rows are ordered by km ascending from Balintawak, and the feed's own
- * latitudes say what that means: 14.679 at the top of the list rising to
- * 15.222 at the bottom. So on this list the north end of NLEX is at the
- * BOTTOM, and an upward arrow therefore points from Sta. Ines back towards
- * Balintawak. Read the arrows as a compass for the carriageway, not as travel
- * along the rows.
- *
- * If that ever needs to be literally true instead, flip the row order so the
- * north end sits at the top - do not flip these back on their own, or the
- * arrows and the flow will disagree with each other again.
+ * Do not flip these without flipping the row order too, or the arrows and the
+ * flow will disagree with the road again.
  */
 export const directionArrow: Record<DirectionKey, 'arrow-up' | 'arrow-down'> = {
   NB: 'arrow-up',
@@ -346,7 +346,7 @@ const ExitRow: React.FC<ExitRowProps> = ({ row, first, last, expanded, onToggle,
         on flex: 1 - that chain is what keeps one exit's pavement touching the
         next one's instead of breaking into separate pills.
       */}
-      {lane('NB')}
+      {lane(LEFT_LANE)}
 
       {/*
         The median. Everything about the exit sits between the carriageways,
@@ -400,7 +400,7 @@ const ExitRow: React.FC<ExitRowProps> = ({ row, first, last, expanded, onToggle,
         ) : null}
       </View>
 
-      {lane('SB')}
+      {lane(RIGHT_LANE)}
     </Pressable>
   );
 };
@@ -444,7 +444,28 @@ const FlowStreaks: React.FC<FlowStreaksProps> = ({ drift, count, direction }) =>
   );
 };
 
+/**
+ * Turns the km-ascending rows the callers build into the order they are drawn:
+ * Sta. Ines, the north end, at the top and Balintawak at the bottom, as the
+ * team asked. Callers keep thinking in km; only the drawing is flipped.
+ *
+ * A queue band is a fraction of its row measured from the top, so flipping the
+ * rows alone would slide every queue to the wrong end of its stretch. Each
+ * band is mirrored with its row.
+ */
+function northAtTop(rows: RoadRow[]): RoadRow[] {
+  const mirror = (reading: RoadDirectionReading): RoadDirectionReading =>
+    reading.bands === undefined
+      ? reading
+      : {
+          ...reading,
+          bands: reading.bands.map((band) => ({ ...band, start: 1 - band.end, end: 1 - band.start })),
+        };
+  return [...rows].reverse().map((row) => ({ ...row, NB: mirror(row.NB), SB: mirror(row.SB) }));
+}
+
 export interface CorridorRoadProps {
+  /** Ordered by km ascending from Balintawak; see `northAtTop`. */
   rows: RoadRow[];
   emptyTitle?: string;
   emptyText?: string;
@@ -464,7 +485,7 @@ export interface CorridorRoadProps {
  * guarantees that.
  */
 const CorridorRoad: React.FC<CorridorRoadProps> = ({
-  rows,
+  rows: rowsByKm,
   emptyTitle = 'Nothing to show',
   emptyText = 'Adjust the filters to see the corridor.',
   onOpenRow,
@@ -472,6 +493,7 @@ const CorridorRoad: React.FC<CorridorRoadProps> = ({
   const { colors } = useTheme();
   const styles = useThemedStyles(makeStyles);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const rows = useMemo(() => northAtTop(rowsByKm), [rowsByKm]);
 
   /*
    * One highlight per carriageway, gliding the whole length of the road.
@@ -557,11 +579,11 @@ const CorridorRoad: React.FC<CorridorRoadProps> = ({
       {/* The caps line up over the carriageways they label, so the header and
           the rows below it share one geometry. */}
       <View style={styles.header}>
-        {cap('NB')}
+        {cap(LEFT_LANE)}
         <Text style={styles.headerHint} numberOfLines={1}>
           {rows.length} interchanges
         </Text>
-        {cap('SB')}
+        {cap(RIGHT_LANE)}
       </View>
 
       <View
@@ -591,11 +613,11 @@ const CorridorRoad: React.FC<CorridorRoadProps> = ({
         */}
         <View style={styles.flowOverlay}>
           <View style={styles.laneCol}>
-            <FlowStreaks drift={drift.NB} count={streakCount} direction="NB" />
+            <FlowStreaks drift={drift[LEFT_LANE]} count={streakCount} direction={LEFT_LANE} />
           </View>
           <View style={styles.flowSpacer} />
           <View style={styles.laneCol}>
-            <FlowStreaks drift={drift.SB} count={streakCount} direction="SB" />
+            <FlowStreaks drift={drift[RIGHT_LANE]} count={streakCount} direction={RIGHT_LANE} />
           </View>
         </View>
       </View>
